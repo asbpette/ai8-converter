@@ -109,6 +109,13 @@ Function .onInit
   SetShellVarContext all
 FunctionEnd
 
+; Explorer caches icons by file path, so after an upgrade the Start menu,
+; desktop and taskbar would keep showing the previous version's icon.
+; SHCNE_ASSOCCHANGED (0x08000000) makes the shell rebuild its icon cache.
+Function .onInstSuccess
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+FunctionEnd
+
 Function un.onInit
   SetRegView 64
   SetShellVarContext all
