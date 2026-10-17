@@ -153,4 +153,8 @@ and the zipped macOS `.app` as artifacts.
 - The output is a plain AI8 file: one layer, and no embedded preview or procsets. Illustrator and AI-importing applications read it directly, but sending it straight to a PostScript printer won't work, and macOS Preview can't open it (use **Preview** or **Open as PDF** in the app).
 - DXF: text (TEXT, MTEXT, attribute and dimension text, SHX fonts) is not converted; 3D entities are projected flat (top view); hatch patterns become native pattern swatches when their line families repeat on a common lattice (ANSI31, crosshatches, bricks, …), otherwise clipped dashed lines; hatch gradients become linear or radial gradients. Drawings without units are taken as millimetres.
 - In expand mode, a pattern stroke whose outline would have more than 5,000 segments (for example a very long dashed line), and patterns nested more than 4 deep, get a flat colour; a warning is shown.
-- Ghostscript is not bundled by default. Mind its AGPL licence if you redistribute it with the app.
+- The packaged builds (`scripts/package-windows.sh`, `scripts/bundle-macos.sh --with-gs`) bundle Ghostscript, which is licensed under the GNU AGPL (source: https://github.com/ArtifexSoftware/ghostpdl). A plain `cargo build` does not bundle it.
+
+## License
+
+Copyright © IOTEK. All rights reserved. Bundled Ghostscript is © Artifex Software, licensed under the GNU AGPL v3.
