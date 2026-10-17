@@ -1,0 +1,111 @@
+# AI8 Converter
+
+A small desktop app (Windows and macOS) and command-line tool that converts
+vector files to the **Adobe Illustrator 8** `.ai` format. Many vinyl cutters,
+plotters, engravers, RIPs and older design programs read AI8 but not newer
+formats.
+
+- **Inputs:** EPS, PS, PDF, AI (both PDF-based Illustrator 9+ files and legacy PostScript-based ones), SVG and SVGZ
+- **Output:** one Illustrator 8 file per page (`name.ai`, or `name_p1.ai`, `name_p2.ai`, … for multi-page input)
+- **What is kept:** paths, curves, compound paths, groups, clipping, fills and strokes (width, caps, joins, dashes), CMYK, RGB and grey colours, and spot colours (for example a `CutContour` cut line), plus overprint
+- **Text:** converted to outlines, so no fonts are needed on the receiving machine
+
+## Ghostscript
+
+EPS, PS and PostScript-based AI files are interpreted with
+[Ghostscript](https://ghostscript.com), which has to be installed separately.
+PDF and SVG files don't need it, but when Ghostscript is installed it's also
+used to turn text in PDF files into outlines. You can switch that off in the
+app, or with `--no-outline-text` on the command line.
+
+| Platform | Install |
+| --- | --- |
+| macOS | `brew install ghostscript` (or MacPorts `port install ghostscript`) |
+| Windows | Download the 64-bit installer from <https://ghostscript.com/releases/gsdnld.html>, or run `choco install ghostscript` |
+
+The app looks for Ghostscript in this order:
+
+1. The `AI8_GHOSTSCRIPT` environment variable (full path to the executable)
+2. A copy bundled with the app: `<app folder>/gs/bin/gswin64c.exe` (Windows),
+   `<app folder>/gs/bin/gs`, or `AI8 Converter.app/Contents/Resources/gs/bin/gs` (macOS)
+3. `PATH` (`gswin64c.exe`, `gswin32c.exe` or `gs.exe` on Windows; `gs` elsewhere)
+4. Standard install locations: `C:\Program Files\gs\gs*\bin\gswin64c.exe` (newest
+   version wins) on Windows, and `/opt/homebrew/bin/gs`, `/usr/local/bin/gs` or
+   `/opt/local/bin/gs` on macOS
+
+You can also point the app at an executable with the **Browse…** button next to
+the Ghostscript status line, or pass `--gs PATH` to the command-line tool. Each
+Ghostscript run has a time limit of 120 seconds.
+
+## Using the app
+
+1. Drop files onto the window, or click **Add files…**. You can also drop a folder; the app adds the supported files directly inside it.
+2. Pick the output location: **Same folder as source** or a folder you choose.
+3. Pick the colour handling:
+   - **Preserve:** keep colours as they are
+   - **CMYK:** convert RGB and grey to CMYK
+   - **RGB:** convert CMYK and grey to RGB
+
+   Spot colours are always kept.
+4. Click **Convert**. Each file shows *Pending*, *Converting*, *Done* (with its output paths and any warnings) or *Failed* (with the error). For a finished file, **Open output folder** shows the result.
+
+If an output file would overwrite its input (an `.ai` input written next to
+itself), `_ai8` is added to the output name.
+
+## Command line
+
+```
+ai8conv [--out DIR] [--color preserve|cmyk|rgb] [--no-outline-text] [--gs PATH] FILES...
+```
+
+```sh
+ai8conv logo.eps                         # writes logo.ai next to logo.eps
+ai8conv --out converted --color cmyk *.pdf *.svg
+ai8conv --gs "C:\Program Files\gs\gs10.04.0\bin\gswin64c.exe" sticker.eps
+```
+
+The tool prints `input -> output` for each file written, and warnings and errors
+on stderr. Exit status: `0` if every file converted, `1` if at least one failed,
+`2` for a usage error.
+
+## Building
+
+You need a recent stable Rust toolchain (edition 2024, Rust 1.85 or later) from
+<https://rustup.rs>.
+
+```sh
+cargo build --release            # GUI: target/release/ai8-converter(.exe)
+                                 # CLI: target/release/ai8conv(.exe)
+cargo test                       # Ghostscript tests are skipped if gs isn't installed
+cargo run                        # start the GUI
+cargo run --bin ai8conv -- --help
+```
+
+**Windows:** use the MSVC toolchain (the Visual Studio Build Tools with the
+"Desktop development with C++" workload). Release builds of the GUI use the
+Windows subsystem, so no console window appears. Ghostscript always runs
+without a console window.
+
+**macOS:** to build a double-clickable app bundle, run:
+
+```sh
+scripts/bundle-macos.sh               # target/release/bundle/AI8 Converter.app (+ .zip)
+scripts/bundle-macos.sh --universal   # Apple Silicon + Intel (needs both rustup targets)
+scripts/bundle-macos.sh --gs-dir DIR  # also bundle a self-contained Ghostscript
+```
+
+The bundle has an ad-hoc signature only. On another Mac, the first launch may
+need right-click → **Open**, or `xattr -dr com.apple.quarantine "AI8 Converter.app"`.
+
+**CI:** `.github/workflows/build.yml` builds and tests on `windows-latest` and
+`macos-latest` with Ghostscript installed. It uploads the Windows `.exe` files
+and the zipped macOS `.app` as artifacts.
+
+## Limitations
+
+- Raster images are not converted. They are dropped and a warning is shown.
+- Gradients, shadings, patterns and transparency (opacity, soft masks, blend modes) are not converted. Gradients and patterns are approximated by a flat colour or dropped, and a warning is shown.
+- Text always becomes outlines; no editable text is written. A PDF with live text that is converted without Ghostscript (or with outlining off) loses that text, and a warning is shown.
+- SVG filters, masks and embedded bitmaps are not supported. CSS and `<use>` are supported. SVG `<text>` is outlined with the fonts installed on the computer, so a missing font falls back to a substitute.
+- The output is a plain AI8 file: one layer, and no embedded preview or procsets. Illustrator and AI-importing applications read it directly, but sending it straight to a PostScript printer won't work.
+- Ghostscript is not bundled by default. Mind its AGPL licence if you redistribute it with the app.

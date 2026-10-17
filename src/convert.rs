@@ -58,7 +58,8 @@ pub fn detect_kind(data: &[u8], path: &Path) -> Option<InputKind> {
     if head.starts_with(b"%!") {
         return Some(InputKind::PostScript);
     }
-    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    // SVG may start with long comments / DOCTYPEs, so look further.
+    let text = String::from_utf8_lossy(&data[..data.len().min(16 * 1024)]).to_ascii_lowercase();
     if text.contains("<svg") || (text.contains("<?xml") && text.contains("svg")) {
         return Some(InputKind::Svg);
     }
@@ -96,12 +97,11 @@ pub fn load_documents(input: &Path, opts: &ConvertOptions) -> Result<Vec<Documen
             parse_all_pages(&pdf_bytes)
         }
         InputKind::Pdf => {
-            if opts.outline_text_in_pdf {
-                if let Some(gs) = gs_path(opts) {
+            if opts.outline_text_in_pdf
+                && let Some(gs) = gs_path(opts) {
                     let pdf_bytes = ghostscript::to_pdf(&gs, input, true, false)?;
                     return parse_all_pages(&pdf_bytes);
                 }
-            }
             parse_all_pages(&data)
         }
     }
@@ -177,6 +177,10 @@ mod tests {
         assert_eq!(detect_kind(b"<svg xmlns=\"http://www.w3.org/2000/svg\">", p), Some(InputKind::Svg));
         assert_eq!(detect_kind(b"garbage", Path::new("a.EPS")), Some(InputKind::PostScript));
         assert_eq!(detect_kind(b"garbage", p), None);
+        let mut long = b"<?xml version=\"1.0\"?>\n<!--".to_vec();
+        long.extend(std::iter::repeat_n(b'x', 3000));
+        long.extend(b"-->\n<svg></svg>");
+        assert_eq!(detect_kind(&long, p), Some(InputKind::Svg));
         // Illustrator 9+ files are PDF-compatible: PDF header after a short prefix.
         assert_eq!(detect_kind(b"\n%PDF-1.5\n", Path::new("a.ai")), Some(InputKind::Pdf));
     }

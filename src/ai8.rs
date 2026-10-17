@@ -124,11 +124,10 @@ pub fn write_ai8(doc: &Document, opts: &WriteOptions) -> String {
 /// Collect unique spot colours (name -> CMYK alternate), in first-use order.
 fn collect_spots(els: &[Element], out: &mut Vec<(String, [f64; 4])>) {
     fn add(c: &Color, out: &mut Vec<(String, [f64; 4])>) {
-        if let Color::Spot { name, cmyk, .. } = c {
-            if !out.iter().any(|(n, _)| n == name) {
+        if let Color::Spot { name, cmyk, .. } = c
+            && !out.iter().any(|(n, _)| n == name) {
                 out.push((name.clone(), *cmyk));
             }
-        }
     }
     for e in els {
         match e {
@@ -353,13 +352,11 @@ impl Writer {
         self.line(&format!("{} {} m", x, y));
         let mut segs: &[Segment] = &sp.segments;
         // A closing line back to the start point is redundant for closed paths.
-        if sp.closed {
-            if let Some(Segment::Line(p)) = segs.last() {
-                if (p.x - sp.start.x).abs() < 1e-6 && (p.y - sp.start.y).abs() < 1e-6 {
+        if sp.closed
+            && let Some(Segment::Line(p)) = segs.last()
+                && (p.x - sp.start.x).abs() < 1e-6 && (p.y - sp.start.y).abs() < 1e-6 {
                     segs = &segs[..segs.len() - 1];
                 }
-            }
-        }
         for s in segs {
             match s {
                 Segment::Line(p) => {

@@ -164,29 +164,7 @@ impl Document {
     /// Tight bounding box of all geometry (control points included; ignores
     /// stroke width). `None` if there is no geometry.
     pub fn content_bounds(&self) -> Option<Rect> {
-        fn walk(els: &[Element], r: &mut Option<Rect>) {
-            let add = |sp: &[Subpath], r: &mut Option<Rect>| {
-                for s in sp {
-                    for p in s.points() {
-                        let b = r.get_or_insert(Rect { llx: p.x, lly: p.y, urx: p.x, ury: p.y });
-                        b.llx = b.llx.min(p.x);
-                        b.lly = b.lly.min(p.y);
-                        b.urx = b.urx.max(p.x);
-                        b.ury = b.ury.max(p.y);
-                    }
-                }
-            };
-            for e in els {
-                match e {
-                    Element::Path(p) => add(&p.subpaths, r),
-                    Element::Group(c) => walk(c, r),
-                    Element::ClipGroup { children, .. } => walk(children, r),
-                }
-            }
-        }
-        let mut r = None;
-        walk(&self.elements, &mut r);
-        r
+        bounds_of(&self.elements)
     }
 
     pub fn path_count(&self) -> usize {
@@ -201,6 +179,54 @@ impl Document {
         }
         count(&self.elements)
     }
+}
+
+fn subpath_bounds(sp: &[Subpath]) -> Option<Rect> {
+    let mut r: Option<Rect> = None;
+    for p in sp.iter().flat_map(|s| s.points()) {
+        let b = r.get_or_insert(Rect { llx: p.x, lly: p.y, urx: p.x, ury: p.y });
+        b.llx = b.llx.min(p.x);
+        b.lly = b.lly.min(p.y);
+        b.urx = b.urx.max(p.x);
+        b.ury = b.ury.max(p.y);
+    }
+    r
+}
+
+fn union(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(Rect {
+            llx: a.llx.min(b.llx),
+            lly: a.lly.min(b.lly),
+            urx: a.urx.max(b.urx),
+            ury: a.ury.max(b.ury),
+        }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Bounds of visible geometry: clip groups contribute the intersection of the
+/// clip path and their children (control points included, stroke width ignored).
+pub fn bounds_of(els: &[Element]) -> Option<Rect> {
+    els.iter().fold(None, |acc, e| {
+        let b = match e {
+            Element::Path(p) => subpath_bounds(&p.subpaths),
+            Element::Group(c) => bounds_of(c),
+            Element::ClipGroup { clip, children, .. } => match (subpath_bounds(clip), bounds_of(children)) {
+                (Some(c), Some(k)) => {
+                    let r = Rect {
+                        llx: c.llx.max(k.llx),
+                        lly: c.lly.max(k.lly),
+                        urx: c.urx.min(k.urx),
+                        ury: c.ury.min(k.ury),
+                    };
+                    (r.llx <= r.urx && r.lly <= r.ury).then_some(r)
+                }
+                _ => None,
+            },
+        };
+        union(acc, b)
+    })
 }
 
 /// 2D affine matrix in PDF/PostScript order [a b c d e f]:

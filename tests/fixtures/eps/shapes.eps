@@ -1,0 +1,17 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 200 150
+%%Title: shapes
+%%EndComments
+% Filled CMYK rectangle
+0.1 0.8 0.6 0.05 setcmykcolor
+20 20 moveto 120 20 lineto 120 80 lineto 20 80 lineto closepath fill
+% RGB stroked Bezier curve
+0 0.4 1 setrgbcolor
+3 setlinewidth
+1 setlinecap
+30 100 moveto 60 140 120 60 180 120 curveto stroke
+% Filled CMYK circle (arcs become curves)
+0 0 1 0 setcmykcolor
+160 50 25 0 360 arc closepath fill
+showpage
+%%EOF

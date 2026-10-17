@@ -1,0 +1,65 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Ghostscript
+        run: choco install ghostscript -y --no-progress
+      - name: Show detected Ghostscript
+        shell: pwsh
+        run: Get-ChildItem "C:\Program Files\gs" -Recurse -Filter gswin64c.exe | Select-Object -ExpandProperty FullName
+      - name: Clippy
+        run: cargo clippy --all-targets
+      - name: Test
+        run: cargo test
+      - name: Build release
+        run: cargo build --release --bins
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/ai8-converter.exe "dist/AI8 Converter.exe"
+          Copy-Item target/release/ai8conv.exe dist/ai8conv.exe
+          Copy-Item README.md dist/README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI8-Converter-Windows-x64
+          path: dist/
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Ghostscript
+        run: brew install ghostscript
+      - name: Clippy
+        run: cargo clippy --all-targets
+      - name: Test
+        run: cargo test
+      - name: Build app bundle (universal)
+        run: scripts/bundle-macos.sh --universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI8-Converter-macOS
+          path: target/release/bundle/AI8-Converter-macOS.zip
