@@ -4,12 +4,15 @@
 //! - [`lexer`]: tolerant content-stream tokenizer (inline images skipped).
 //! - [`function`]: PDF function types 0, 2, 3 and 4 (tint transforms).
 //! - [`color`]: colour spaces -> IR colours (spot colours preserved).
-//! - [`interp`]: the content-stream interpreter (paths, gstate, clipping, forms).
+//! - [`shading`]: axial/radial shadings -> IR gradients.
+//! - [`interp`]: the content-stream interpreter (paths, gstate, clipping, forms,
+//!   tiling patterns, shading patterns and `sh`).
 
 mod color;
 mod function;
 mod interp;
 mod lexer;
+mod shading;
 
 use crate::ir::{Document, Matrix, Rect};
 use anyhow::{Context, Result, anyhow, bail};
@@ -170,6 +173,7 @@ pub fn parse_pdf(data: &[u8], page_index: usize) -> Result<Document> {
 
     let content = page_content(&doc, page, &mut warnings);
     let mut it = interp::Interp::new(&doc, base);
+    it.set_paint_area(page_rect);
     for w in warnings {
         it.warn(w);
     }

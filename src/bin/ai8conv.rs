@@ -1,6 +1,6 @@
 //! Command-line converter: EPS / PS / PDF / AI / SVG -> Adobe Illustrator 8.
 
-use ai8_converter::{ColorMode, ConvertOptions, convert_file};
+use ai8_converter::{ColorMode, ConvertOptions, PatternMode, convert_file};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -13,6 +13,10 @@ USAGE:
 OPTIONS:
     -o, --out DIR            Write output files to DIR (default: next to each input)
     -c, --color MODE         Colour handling: preserve (default), cmyk or rgb
+    -p, --patterns MODE      Pattern fills/strokes: native (default) writes
+                             editable Illustrator pattern swatches; expand
+                             replaces them by plain clipped tile paths (for
+                             cutters, plotters and RIPs without pattern support)
         --no-outline-text    Keep PDF/AI input as-is instead of outlining text
                              with Ghostscript (EPS/PS text is always outlined)
         --gs PATH            Ghostscript executable to use (default: auto-detect,
@@ -35,6 +39,7 @@ enum Cli {
 struct CliOpts {
     out: Option<PathBuf>,
     color: ColorMode,
+    patterns: PatternMode,
     outline_text: bool,
     gs: Option<PathBuf>,
 }
@@ -48,9 +53,18 @@ fn parse_color(s: &str) -> Result<ColorMode, String> {
     }
 }
 
+fn parse_patterns(s: &str) -> Result<PatternMode, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "native" => Ok(PatternMode::Native),
+        "expand" | "expanded" => Ok(PatternMode::Expand),
+        _ => Err(format!("invalid pattern mode '{s}' (expected native or expand)")),
+    }
+}
+
 fn parse_args<I: IntoIterator<Item = std::ffi::OsString>>(args: I) -> Result<Cli, String> {
     let mut files = Vec::new();
-    let mut opts = CliOpts { out: None, color: ColorMode::Preserve, outline_text: true, gs: None };
+    let mut opts =
+        CliOpts { out: None, color: ColorMode::Preserve, patterns: PatternMode::Native, outline_text: true, gs: None };
     let mut it = args.into_iter();
     let mut only_files = false;
     while let Some(arg) = it.next() {
@@ -75,6 +89,7 @@ fn parse_args<I: IntoIterator<Item = std::ffi::OsString>>(args: I) -> Result<Cli
             "-V" | "--version" => return Ok(Cli::Version),
             "-o" | "--out" => opts.out = Some(PathBuf::from(value("a directory")?)),
             "-c" | "--color" | "--colour" => opts.color = parse_color(&value("a mode")?.to_string_lossy())?,
+            "-p" | "--patterns" => opts.patterns = parse_patterns(&value("a mode")?.to_string_lossy())?,
             "--no-outline-text" => opts.outline_text = false,
             "--gs" => opts.gs = Some(PathBuf::from(value("a path")?)),
             "--" => only_files = true,
@@ -116,7 +131,7 @@ fn main() -> ExitCode {
     }
     let opts = ConvertOptions {
         color_mode: o.color,
-        pattern_mode: Default::default(),
+        pattern_mode: o.patterns,
         outline_text_in_pdf: o.outline_text,
         out_dir: o.out,
         ghostscript: o.gs,
@@ -168,6 +183,21 @@ mod tests {
         assert_eq!(opts.color, ColorMode::Cmyk);
         assert!(!opts.outline_text);
         assert_eq!(opts.gs, Some(PathBuf::from("/x/gs")));
+        assert_eq!(opts.patterns, PatternMode::Native);
+    }
+
+    #[test]
+    fn parses_pattern_mode() {
+        for (args, want) in [
+            (&["--patterns", "expand", "a"][..], PatternMode::Expand),
+            (&["--patterns=native", "a"][..], PatternMode::Native),
+            (&["-p", "EXPAND", "a"][..], PatternMode::Expand),
+        ] {
+            let Cli::Run { opts, .. } = p(args).unwrap() else { panic!() };
+            assert_eq!(opts.patterns, want, "{args:?}");
+        }
+        assert!(p(&["--patterns", "tiles", "a"]).unwrap_err().contains("invalid pattern mode"));
+        assert!(p(&["a", "--patterns"]).is_err());
     }
 
     #[test]

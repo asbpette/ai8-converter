@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Build "AI8 Converter.app" for macOS.
 #
-# Usage: scripts/bundle-macos.sh [--universal] [--gs-dir DIR]
+# Usage: scripts/bundle-macos.sh [--universal] [--with-gs | --gs-dir DIR] [--dmg]
 #   --universal   build for both Apple Silicon and Intel and merge with lipo
 #                 (needs: rustup target add aarch64-apple-darwin x86_64-apple-darwin)
-#   --gs-dir DIR  copy a self-contained Ghostscript install (DIR/bin/gs + its
-#                 resources) into the bundle at Contents/Resources/gs
+#   --with-gs     build (or reuse the cached build of) a self-contained Ghostscript
+#                 with scripts/macos/build-ghostscript.sh and bundle it at
+#                 Contents/Resources/gs, so the app needs nothing installed
+#   --gs-dir DIR  bundle an existing self-contained Ghostscript (DIR/bin/gs) instead
+#   --dmg         also create dist/AI8-Converter-<version>-macos-<arch>.dmg
 #
 # Output: target/release/bundle/AI8 Converter.app (and a .zip next to it).
 set -euo pipefail
@@ -19,15 +22,37 @@ VERSION="$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)"
 
 UNIVERSAL=0
 GS_DIR=""
+WITH_GS=0
+DMG=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --universal) UNIVERSAL=1 ;;
         --gs-dir) GS_DIR="$2"; shift ;;
-        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        --with-gs) WITH_GS=1 ;;
+        --dmg) DMG=1 ;;
+        -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift
 done
+
+if [ "$UNIVERSAL" = 1 ]; then
+    ARCH_LABEL="universal"
+else
+    ARCH_LABEL="$(uname -m)"
+    [ "$ARCH_LABEL" = "aarch64" ] && ARCH_LABEL=arm64
+fi
+
+if [ "$WITH_GS" = 1 ]; then
+    if [ -n "$GS_DIR" ]; then
+        echo "--with-gs and --gs-dir are mutually exclusive" >&2
+        exit 2
+    fi
+    GS_VERSION="$(scripts/macos/build-ghostscript.sh --version)"
+    GS_DIR="target/ghostscript/gs-${GS_VERSION}-macos-${ARCH_LABEL}"
+    # Cached: returns immediately when GS_DIR already holds a matching build.
+    scripts/macos/build-ghostscript.sh --arch "$ARCH_LABEL" --prefix "$GS_DIR"
+fi
 
 if [ "$UNIVERSAL" = 1 ]; then
     cargo build --release --bins --target aarch64-apple-darwin
@@ -52,7 +77,33 @@ cp "$BIN_DIR/$BIN" "$APP/Contents/MacOS/$BIN"
 cp "$BIN_DIR/ai8conv" "$APP/Contents/MacOS/ai8conv"
 
 if [ -n "$GS_DIR" ]; then
-    cp -R "$GS_DIR" "$APP/Contents/Resources/gs"
+    if [ ! -x "$GS_DIR/bin/gs" ]; then
+        echo "no executable $GS_DIR/bin/gs" >&2
+        exit 1
+    fi
+    GS_DEST="$APP/Contents/Resources/gs"
+    mkdir -p "$GS_DEST"
+    cp -R "$GS_DIR/." "$GS_DEST/"
+    # Refuse to ship a gs that depends on Homebrew/MacPorts libraries.
+    if otool -L "$GS_DEST/bin/gs" | grep -E '^[[:space:]]' | grep -v -E '^[[:space:]]+(/usr/lib/|/System/)' | grep -q .; then
+        echo "ERROR: $GS_DIR/bin/gs links against non-system libraries; use --with-gs" >&2
+        otool -L "$GS_DEST/bin/gs" >&2
+        exit 1
+    fi
+    if [ ! -f "$GS_DEST/COPYING" ]; then
+        echo "warning: $GS_DIR has no COPYING (AGPL) file" >&2
+    fi
+    cat > "$APP/Contents/Resources/THIRD-PARTY-NOTICES.txt" <<'EOF'
+AI8 Converter bundles Ghostscript (Artifex Software, Inc.) in
+Contents/Resources/gs. It is used as a separate program to read EPS/PostScript
+input and is licensed under the GNU Affero General Public License v3; see
+Contents/Resources/gs/COPYING and Contents/Resources/gs/LICENSE.
+
+The exact upstream source tarball and its checksum are listed in
+Contents/Resources/gs/BUILDINFO.txt; the build recipe is
+scripts/macos/build-ghostscript.sh in the AI8 Converter source tree.
+Ghostscript source: https://github.com/ArtifexSoftware/ghostpdl-downloads/releases
+EOF
 fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -79,9 +130,16 @@ PLIST
 
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-# Ad-hoc signature so the bundle runs on Apple Silicon after copying.
+# Ad-hoc signature so the bundle runs on Apple Silicon after copying. Helper
+# executables outside Contents/MacOS (the bundled gs) are not reached by
+# --deep, so sign them explicitly first, then seal the whole bundle.
 if command -v codesign >/dev/null 2>&1; then
+    if [ -f "$APP/Contents/Resources/gs/bin/gs" ]; then
+        codesign --force --sign - --identifier "$BUNDLE_ID.ghostscript" "$APP/Contents/Resources/gs/bin/gs"
+    fi
+    codesign --force --sign - "$APP/Contents/MacOS/ai8conv"
     codesign --force --deep --sign - "$APP"
+    codesign --verify --deep --strict "$APP"
 fi
 
 ZIP="$OUT_DIR/AI8-Converter-macOS.zip"
@@ -90,3 +148,7 @@ rm -f "$ZIP"
 
 echo "Built: $APP"
 echo "Zip:   $ZIP"
+
+if [ "$DMG" = 1 ]; then
+    scripts/macos/make-dmg.sh --app "$APP" --arch "$ARCH_LABEL"
+fi

@@ -1,0 +1,30 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 300 200
+%%Title: PostScript level 3 shadings: shfill + shading pattern (axial and radial)
+%%EndComments
+% 1) Axial shfill clipped to a rectangle: red -> blue (RGB).
+gsave
+newpath 10 10 moveto 140 10 lineto 140 90 lineto 10 90 lineto closepath clip
+<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10 0 140 0]
+   /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >>
+   /Extend [true true] >> shfill
+grestore
+% 2) Radial shading pattern (CMYK, three-colour stitching function) filling a circle.
+<< /PatternType 2
+   /Shading << /ShadingType 3 /ColorSpace /DeviceCMYK /Coords [225 50 0 225 50 45]
+     /Function << /FunctionType 3 /Domain [0 1] /Bounds [0.5] /Encode [0 1 0 1]
+        /Functions [ << /FunctionType 2 /Domain [0 1] /C0 [0 0 1 0] /C1 [0 1 0 0] /N 1 >>
+                     << /FunctionType 2 /Domain [0 1] /C0 [0 1 0 0] /C1 [1 0 0 0] /N 1 >> ] >>
+     /Extend [true true] >>
+>> matrix makepattern setpattern
+newpath 225 50 45 0 360 arc closepath fill
+% 3) Axial shading pattern with a spot colour (Separation) on a stroke-free rectangle.
+<< /PatternType 2
+   /Shading << /ShadingType 2
+     /ColorSpace [/Separation /Gold /DeviceCMYK { dup 0.2 mul exch dup 0.4 mul exch 0.9 mul 0 } ]
+     /Coords [10 110 10 190]
+     /Function << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >>
+>> matrix makepattern setpattern
+10 110 130 80 rectfill
+showpage
+%%EOF

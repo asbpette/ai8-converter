@@ -1,0 +1,15 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 200 200
+%%Title: coloured tiling pattern (PaintType 1)
+%%EndComments
+% 20x20 cell: red square in the lower-left quarter, blue dot in the centre.
+<< /PatternType 1 /PaintType 1 /TilingType 1
+   /BBox [0 0 20 20] /XStep 20 /YStep 20
+   /PaintProc { pop
+     1 0 0 setrgbcolor 0 0 10 10 rectfill
+     0 0 1 setrgbcolor newpath 10 10 3 0 360 arc closepath fill }
+>> matrix makepattern /Checker exch def
+Checker setpattern
+20 20 160 160 rectfill
+showpage
+%%EOF

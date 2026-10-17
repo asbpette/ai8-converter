@@ -1,7 +1,7 @@
 //! AI8 Converter desktop GUI.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-use ai8_converter::{ColorMode, ConvertOptions, ConvertReport, convert_file, ghostscript};
+use ai8_converter::{ColorMode, ConvertOptions, ConvertReport, PatternMode, convert_file, ghostscript};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -191,10 +191,23 @@ fn color_mode_label(m: ColorMode) -> &'static str {
     }
 }
 
-fn build_options(location: &OutputLocation, color: ColorMode, outline: bool, gs: &GsStatus) -> ConvertOptions {
+fn pattern_mode_label(m: PatternMode) -> &'static str {
+    match m {
+        PatternMode::Native => "Native Illustrator patterns",
+        PatternMode::Expand => "Expand to paths (for cutters)",
+    }
+}
+
+fn build_options(
+    location: &OutputLocation,
+    color: ColorMode,
+    patterns: PatternMode,
+    outline: bool,
+    gs: &GsStatus,
+) -> ConvertOptions {
     ConvertOptions {
         color_mode: color,
-        pattern_mode: Default::default(),
+        pattern_mode: patterns,
         outline_text_in_pdf: outline,
         out_dir: match location {
             OutputLocation::SameAsSource => None,
@@ -256,6 +269,7 @@ struct App {
     queue: Queue,
     location: OutputLocation,
     color: ColorMode,
+    patterns: PatternMode,
     outline_text: bool,
     gs: GsStatus,
     worker: Option<Receiver<WorkerMsg>>,
@@ -268,6 +282,7 @@ impl App {
             queue: Queue::default(),
             location: OutputLocation::SameAsSource,
             color: ColorMode::Preserve,
+            patterns: PatternMode::Native,
             outline_text: true,
             gs: GsStatus::detect(),
             worker: None,
@@ -307,7 +322,7 @@ impl App {
             self.queue.set_status(*id, Status::Pending);
         }
         let (tx, rx) = channel();
-        let opts = build_options(&self.location, self.color, self.outline_text, &self.gs);
+        let opts = build_options(&self.location, self.color, self.patterns, self.outline_text, &self.gs);
         spawn_worker(jobs, opts, tx, ctx.clone());
         self.worker = Some(rx);
         self.notice = None;
@@ -378,6 +393,20 @@ impl App {
                         }
                     },
                 );
+                ui.end_row();
+
+                ui.label("Patterns:");
+                ui.horizontal(|ui| {
+                    for m in [PatternMode::Native, PatternMode::Expand] {
+                        ui.radio_value(&mut self.patterns, m, pattern_mode_label(m)).on_hover_text(match m {
+                            PatternMode::Native => "Pattern fills stay editable pattern swatches in Illustrator",
+                            PatternMode::Expand => {
+                                "Replace pattern fills by plain clipped tile paths, for cutters, plotters and RIPs \
+                                 that do not understand pattern fills"
+                            }
+                        });
+                    }
+                });
                 ui.end_row();
 
                 ui.label("Text:");
@@ -674,12 +703,14 @@ mod tests {
     #[test]
     fn options_mapping() {
         let gs = GsStatus::Found { path: "/usr/bin/gs".into(), version: None };
-        let o = build_options(&OutputLocation::Folder("/out".into()), ColorMode::Rgb, false, &gs);
+        let o = build_options(&OutputLocation::Folder("/out".into()), ColorMode::Rgb, PatternMode::Expand, false, &gs);
         assert_eq!(o.out_dir, Some(PathBuf::from("/out")));
         assert_eq!(o.color_mode, ColorMode::Rgb);
+        assert_eq!(o.pattern_mode, PatternMode::Expand);
         assert!(!o.outline_text_in_pdf);
         assert_eq!(o.ghostscript, Some(PathBuf::from("/usr/bin/gs")));
-        let o = build_options(&OutputLocation::SameAsSource, ColorMode::Cmyk, true, &GsStatus::NotFound);
+        let o = build_options(&OutputLocation::SameAsSource, ColorMode::Cmyk, PatternMode::Native, true, &GsStatus::NotFound);
+        assert_eq!(o.pattern_mode, PatternMode::Native);
         assert_eq!(o.out_dir, None);
         assert_eq!(o.ghostscript, None);
     }

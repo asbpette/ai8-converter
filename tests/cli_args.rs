@@ -81,6 +81,43 @@ fn bad_color_mode_is_usage_error() {
 }
 
 #[test]
+fn help_mentions_pattern_option() {
+    let s = stdout(&run(&["--help"]));
+    assert!(s.contains("--patterns") && s.contains("native") && s.contains("expand"), "{s}");
+}
+
+#[test]
+fn bad_pattern_mode_is_usage_error() {
+    for args in [&["--patterns", "tiles", "x.svg"][..], &["--patterns=", "x.svg"][..], &["x.svg", "--patterns"][..]] {
+        let o = run(args);
+        assert_eq!(o.status.code(), Some(2), "{args:?}");
+    }
+    let o = run(&["--patterns", "tiles", "x.svg"]);
+    assert!(stderr(&o).contains("invalid pattern mode"), "{}", stderr(&o));
+}
+
+const PATTERN_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+  <pattern id="dots" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="3" fill="red"/></pattern>
+  <linearGradient id="g"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient>
+  <rect width="60" height="60" fill="url(#dots)"/>
+  <circle cx="70" cy="70" r="20" fill="url(#g)"/>
+</svg>
+"##;
+
+#[test]
+fn converts_patterns_in_both_modes() {
+    for mode in ["native", "expand"] {
+        let dir = temp_dir(&format!("patterns-{mode}"));
+        let input = dir.join("pat.svg");
+        std::fs::write(&input, PATTERN_SVG).unwrap();
+        let o = ai8conv(&["--patterns".as_ref(), mode.as_ref(), input.as_os_str()]);
+        assert!(o.status.success(), "{mode}: stderr: {}", stderr(&o));
+        check_ai(&dir.join("pat.ai"));
+        assert!(!stderr(&o).contains("mid gray"), "{mode}: {}", stderr(&o));
+    }
+}
+
+#[test]
 fn missing_option_value_is_usage_error() {
     let o = run(&["x.eps", "--out"]);
     assert_eq!(o.status.code(), Some(2));

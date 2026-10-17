@@ -4,6 +4,7 @@ pub mod ai8;
 pub mod convert;
 pub mod ghostscript;
 pub mod ir;
+pub mod patterns;
 pub mod pdf;
 pub mod svg;
 

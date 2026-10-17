@@ -1,0 +1,12 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 120 120
+%%Title: tiling pattern whose cell is painted with another pattern
+%%EndComments
+<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 4 4] /XStep 4 /YStep 4
+   /PaintProc { pop 0 0 0 1 setcmykcolor 0 0 2 2 rectfill } >> matrix makepattern /Inner exch def
+<< /PatternType 1 /PaintType 1 /TilingType 2 /BBox [0 0 30 30] /XStep 30 /YStep 30
+   /PaintProc { pop Inner setpattern 0 0 15 15 rectfill 1 0 0 0 setcmykcolor 15 15 15 15 rectfill } >>
+matrix makepattern /Outer exch def
+Outer setpattern 0 0 120 120 rectfill
+showpage
+%%EOF

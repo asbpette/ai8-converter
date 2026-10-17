@@ -3,7 +3,11 @@
 mod common;
 
 use ai8_converter::ai8::{WriteOptions, write_ai8};
-use ai8_converter::ir::{Color, Document, Element, LineCap, LineJoin, PathItem, Point, Segment, Subpath};
+use ai8_converter::ir::{
+    Color, Document, Element, GradientKind, GradientPaint, LineCap, LineJoin, Matrix, PathItem, PatternPaint, Point,
+    Segment, Subpath,
+};
+use std::sync::Arc;
 use ai8_converter::svg::parse_svg;
 
 const NS: &str = r##"xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink""##;
@@ -281,34 +285,398 @@ fn paint_order_stroke_first_splits() {
     assert!(ps[1].fill.is_some() && ps[1].stroke.is_none());
 }
 
+// ---------------------------------------------------------------- patterns
+
+fn pattern(c: &Option<Color>) -> &PatternPaint {
+    match c {
+        Some(Color::Pattern(p)) => p,
+        other => panic!("expected pattern paint, got {other:?}"),
+    }
+}
+
+fn gradient(c: &Option<Color>) -> &GradientPaint {
+    match c {
+        Some(Color::Gradient(g)) => g,
+        other => panic!("expected gradient paint, got {other:?}"),
+    }
+}
+
+fn assert_matrix(m: &Matrix, e: [f64; 6]) {
+    let got = [m.a, m.b, m.c, m.d, m.e, m.f];
+    assert!(got.iter().zip(e).all(|(a, b)| close(*a, b)), "expected matrix {e:?}, got {got:?}");
+}
+
+/// Check that a pattern paint matrix maps the upright IR tile space onto the
+/// page exactly like SVG would: `tile_to_user` maps SVG tile space (px, y down,
+/// origin at the tile's top-left corner) to the root user space of an SVG
+/// whose height is `page_h_px`. `tile_h_px` is the tile height in px.
+fn assert_pattern_maps(m: &Matrix, tile_h_px: f64, page_h_px: f64, tile_to_user: impl Fn(f64, f64) -> (f64, f64)) {
+    for (tx, ty) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (3.0, 7.0), (-2.5, 4.0)] {
+        let ir = Point::new(0.75 * tx, 0.75 * (tile_h_px - ty));
+        let (ux, uy) = tile_to_user(tx, ty);
+        assert_pt(m.apply(ir), 0.75 * ux, 0.75 * (page_h_px - uy));
+    }
+}
+
+const DEG45: f64 = std::f64::consts::FRAC_1_SQRT_2;
+
 #[test]
-fn gradient_approximation_warning() {
+fn pattern_tile_steps_and_identity_matrix() {
     let doc = parse(
         r##"width="100" height="100""##,
-        r##"<defs><linearGradient id="g"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#000000"/></linearGradient>
-           <radialGradient id="r"><stop offset="0" stop-color="red"/><stop offset="0.5" stop-color="lime"/><stop offset="1" stop-color="blue"/></radialGradient></defs>
-           <rect width="10" height="10" fill="url(#g)"/>
-           <rect width="10" height="10" fill="url(#r)" stroke="url(#g)"/>"##,
+        r##"<defs><pattern id="dots" width="10" height="20" patternUnits="userSpaceOnUse">
+             <rect width="5" height="5" fill="#ff0000"/><circle cx="5" cy="15" r="2" fill="blue"/></pattern></defs>
+           <rect width="100" height="100" fill="url(#dots)"/>"##,
     );
-    let ps = paths(&doc);
-    assert_eq!(ps.len(), 2);
-    let (r, g, b) = rgb(&ps[0].fill);
-    assert!(close(r, 0.5) && close(g, 0.5) && close(b, 0.5));
-    let (r, g, b) = rgb(&ps[1].fill);
-    assert!(close(r, 1.0 / 3.0) && close(g, 1.0 / 3.0) && close(b, 1.0 / 3.0));
-    assert!(ps[1].stroke.is_some());
-    assert_eq!(doc.warnings.iter().filter(|w| w.contains("gradient")).count(), 1, "{:?}", doc.warnings);
+    let pp = pattern(&only_path(&doc).fill);
+    let pat = &pp.pattern;
+    assert_eq!(pat.name, "dots");
+    assert!(close(pat.bbox.llx, 0.0) && close(pat.bbox.lly, 0.0), "{:?}", pat.bbox);
+    assert!(close(pat.bbox.urx, 7.5) && close(pat.bbox.ury, 15.0), "{:?}", pat.bbox);
+    assert!(close(pat.x_step, 7.5) && close(pat.y_step, 15.0));
+    // Tile art: upright (y up) in points.
+    assert_eq!(pat.elements.len(), 2, "{:#?}", pat.elements);
+    let Element::Path(sq) = &pat.elements[0] else { panic!("{:?}", pat.elements[0]) };
+    assert_eq!(sq.fill, Some(Color::Rgb(1.0, 0.0, 0.0)));
+    let a = anchors(&sq.subpaths[0]);
+    assert_pt(a[0], 0.0, 15.0);
+    assert_pt(a[1], 3.75, 15.0);
+    assert_pt(a[2], 3.75, 11.25);
+    assert_pt(a[3], 0.0, 11.25);
+    let Element::Path(dot) = &pat.elements[1] else { panic!() };
+    assert_eq!(dot.fill, Some(Color::Rgb(0.0, 0.0, 1.0)));
+    // Circle centre (5, 15) px -> (3.75, 3.75) pt; radius 2 px -> 1.5 pt.
+    let pts: Vec<Point> = dot.subpaths[0].points().collect();
+    let minx = pts.iter().map(|p| p.x).fold(f64::MAX, f64::min);
+    let maxy = pts.iter().map(|p| p.y).fold(f64::MIN, f64::max);
+    assert!(close(minx, 2.25) && close(maxy, 5.25), "{pts:?}");
+    // No patternTransform, no offset: tile top-left (0, 0) px sits at the page
+    // top-left, i.e. the tile's lower-left corner at y = 75 - 15 = 60 pt.
+    assert_matrix(&pp.matrix, [1.0, 0.0, 0.0, 1.0, 0.0, 60.0]);
+    assert!(!has_warning(&doc, "pattern"), "{:?}", doc.warnings);
 }
 
 #[test]
-fn pattern_becomes_gray() {
+fn pattern_xy_offset() {
     let doc = parse(
         r##"width="100" height="100""##,
-        r##"<defs><pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="2"/></pattern></defs>
-           <rect width="10" height="10" fill="url(#p)"/>"##,
+        r##"<pattern id="p" x="4" y="8" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="5"/></pattern>
+           <rect width="100" height="100" fill="url(#p)"/>"##,
     );
-    assert_eq!(only_path(&doc).fill, Some(Color::Rgb(0.5, 0.5, 0.5)));
-    assert!(has_warning(&doc, "pattern"));
+    let pp = pattern(&only_path(&doc).fill);
+    assert_matrix(&pp.matrix, [1.0, 0.0, 0.0, 1.0, 3.0, 75.0 - 0.75 * 18.0]);
+    assert_pattern_maps(&pp.matrix, 10.0, 100.0, |x, y| (x + 4.0, y + 8.0));
+}
+
+#[test]
+fn pattern_transform_rotate_and_scale() {
+    let doc = parse(
+        r##"width="200" height="100""##,
+        r##"<pattern id="r" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5"/></pattern>
+           <pattern id="s" x="1" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="translate(3 4) scale(2 3)"><rect width="5" height="5"/></pattern>
+           <rect width="100" height="100" fill="url(#r)"/><rect x="100" width="100" height="100" fill="url(#s)"/>"##,
+    );
+    let ps = paths(&doc);
+    let r = pattern(&ps[0].fill);
+    assert_eq!(r.pattern.name, "r");
+    assert_pattern_maps(&r.matrix, 10.0, 100.0, |x, y| (DEG45 * (x - y), DEG45 * (x + y)));
+    // Rotation is preserved as a proper rotation in y-up space (det > 0).
+    assert!(r.matrix.a * r.matrix.d - r.matrix.b * r.matrix.c > 0.0);
+    let s = pattern(&ps[1].fill);
+    assert_pattern_maps(&s.matrix, 10.0, 100.0, |x, y| (3.0 + 2.0 * (x + 1.0), 4.0 + 3.0 * y));
+    assert_matrix(&s.matrix, [2.0, 0.0, 0.0, 3.0, 0.75 * 5.0, 75.0 - 0.75 * 34.0]);
+}
+
+#[test]
+fn pattern_in_transformed_group() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="5"/></pattern>
+           <g transform="translate(10 20) scale(2)"><rect width="20" height="20" fill="url(#p)"/></g>"##,
+    );
+    let pp = pattern(&only_path(&doc).fill);
+    assert_pattern_maps(&pp.matrix, 10.0, 100.0, |x, y| (10.0 + 2.0 * x, 20.0 + 2.0 * y));
+    // Tile art itself is not affected by the element's transform.
+    let Element::Path(t) = &pp.pattern.elements[0] else { panic!() };
+    assert_pt(anchors(&t.subpaths[0])[1], 3.75, 7.5);
+}
+
+#[test]
+fn pattern_view_box_scales_tile_content() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="p" width="10" height="10" viewBox="0 0 100 100" patternUnits="userSpaceOnUse"><rect width="50" height="50"/></pattern>
+           <rect width="100" height="100" fill="url(#p)"/>"##,
+    );
+    let pp = pattern(&only_path(&doc).fill);
+    assert!(close(pp.pattern.x_step, 7.5) && close(pp.pattern.y_step, 7.5));
+    let Element::Path(t) = &pp.pattern.elements[0] else { panic!() };
+    let a = anchors(&t.subpaths[0]);
+    // 50 viewBox units = 5 px = 3.75 pt, from the tile's top edge.
+    assert_pt(a[0], 0.0, 7.5);
+    assert_pt(a[2], 3.75, 3.75);
+    assert_matrix(&pp.matrix, [1.0, 0.0, 0.0, 1.0, 0.0, 67.5]);
+}
+
+#[test]
+fn pattern_object_bounding_box_units() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="p" width="0.25" height="0.5" patternContentUnits="objectBoundingBox"><rect width="0.1" height="0.1"/></pattern>
+           <rect x="20" y="40" width="40" height="20" fill="url(#p)"/>"##,
+    );
+    let pp = pattern(&only_path(&doc).fill);
+    // Tile: 0.25 * 40 = 10 px wide, 0.5 * 20 = 10 px high.
+    assert!(close(pp.pattern.x_step, 7.5) && close(pp.pattern.y_step, 7.5), "{:?}", pp.pattern);
+    // Content: 0.1 * bbox = 4 x 2 px.
+    let Element::Path(t) = &pp.pattern.elements[0] else { panic!() };
+    let a = anchors(&t.subpaths[0]);
+    assert_pt(a[0], 0.0, 7.5);
+    assert_pt(a[2], 3.0, 6.0);
+    // Tile origin at the bbox origin (20, 40).
+    assert_pattern_maps(&pp.matrix, 10.0, 100.0, |x, y| (x + 20.0, y + 40.0));
+}
+
+#[test]
+fn pattern_on_stroke() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="green"/></pattern>
+           <path d="M10 10 L90 90" fill="none" stroke="url(#p)" stroke-width="8"/>"##,
+    );
+    let p = only_path(&doc);
+    assert!(p.fill.is_none());
+    let s = p.stroke.as_ref().unwrap();
+    assert!(close(s.width, 6.0));
+    let pp = pattern(&Some(s.color.clone())).clone();
+    assert_eq!(pp.pattern.name, "p");
+    assert_matrix(&pp.matrix, [1.0, 0.0, 0.0, 1.0, 0.0, 72.0]);
+}
+
+#[test]
+fn nested_pattern_inside_tile() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="inner" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="red"/></pattern>
+           <pattern id="outer" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="url(#inner)"/></pattern>
+           <rect width="100" height="100" fill="url(#outer)"/>"##,
+    );
+    let outer = pattern(&only_path(&doc).fill);
+    assert_eq!(outer.pattern.name, "outer");
+    let Element::Path(t) = &outer.pattern.elements[0] else { panic!() };
+    let inner = pattern(&t.fill);
+    assert_eq!(inner.pattern.name, "inner");
+    assert!(close(inner.pattern.x_step, 1.5));
+    // Inner IR space -> outer IR space: inner tile top (y = 1.5 pt) meets the
+    // outer tile top (y = 7.5 pt).
+    assert_matrix(&inner.matrix, [1.0, 0.0, 0.0, 1.0, 0.0, 6.0]);
+}
+
+#[test]
+fn self_referencing_pattern_does_not_hang() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="url(#p)"/><rect x="5" width="5" height="5"/></pattern>
+           <rect width="100" height="100" fill="url(#p)"/>"##,
+    );
+    assert!(!paths(&doc).is_empty());
+}
+
+#[test]
+fn pattern_caching_and_names() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="a" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="5"/></pattern>
+           <pattern id="b" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="3"/></pattern>
+           <pattern id="bb" width="0.5" height="0.5"><circle cx="5" cy="5" r="2"/></pattern>
+           <rect width="10" height="10" fill="url(#a)"/>
+           <rect x="20" width="10" height="10" fill="url(#a)" stroke="url(#b)"/>
+           <rect x="40" width="20" height="20" fill="url(#bb)"/>
+           <rect x="60" width="40" height="40" fill="url(#bb)"/>"##,
+    );
+    let ps = paths(&doc);
+    assert_eq!(ps.len(), 4);
+    let a1 = pattern(&ps[0].fill);
+    let a2 = pattern(&ps[1].fill);
+    assert!(Arc::ptr_eq(&a1.pattern, &a2.pattern), "same <pattern> must share one IR pattern");
+    // userSpaceOnUse: same tile origin for both uses.
+    assert_eq!(a1.matrix, a2.matrix);
+    let b = pattern(&Some(ps[1].stroke.as_ref().unwrap().color.clone())).clone();
+    assert_eq!((a1.pattern.name.as_str(), b.pattern.name.as_str()), ("a", "b"));
+    // objectBoundingBox pattern on differently sized shapes: different tiles,
+    // distinct names.
+    let c1 = pattern(&ps[2].fill);
+    let c2 = pattern(&ps[3].fill);
+    assert!(close(c1.pattern.x_step, 7.5) && close(c2.pattern.x_step, 15.0));
+    let names: std::collections::HashSet<&str> =
+        [&a1.pattern.name, &b.pattern.name, &c1.pattern.name, &c2.pattern.name].map(|s| s.as_str()).into();
+    assert_eq!(names.len(), 4, "{names:?}");
+}
+
+#[test]
+fn identical_pattern_tiles_are_shared() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="p" width="0.5" height="0.5"><rect width="2" height="2"/></pattern>
+           <rect width="20" height="20" fill="url(#p)"/><rect x="50" width="20" height="20" fill="url(#p)"/>"##,
+    );
+    let ps = paths(&doc);
+    assert!(Arc::ptr_eq(&pattern(&ps[0].fill).pattern, &pattern(&ps[1].fill).pattern));
+}
+
+#[test]
+fn empty_pattern_paints_nothing() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="none"/></pattern>
+           <rect width="10" height="10" fill="url(#p)" stroke="black"/>"##,
+    );
+    let p = only_path(&doc);
+    assert!(p.fill.is_none() && p.stroke.is_some(), "{p:?}");
+}
+
+// ---------------------------------------------------------------- gradients
+
+fn assert_stop(g: &GradientPaint, i: usize, offset: f64, r: f64, gr: f64, b: f64) {
+    let s = &g.gradient.stops[i];
+    assert!(close(s.offset, offset), "stop {i}: {s:?}");
+    match s.color {
+        Color::Rgb(x, y, z) => assert!(close(x, r) && close(y, gr) && close(z, b), "stop {i}: {s:?}"),
+        ref c => panic!("stop {i}: expected RGB, got {c:?}"),
+    }
+}
+
+#[test]
+fn linear_gradient_user_space_geometry_and_stops() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<linearGradient id="g" x1="10" y1="20" x2="90" y2="30" gradientUnits="userSpaceOnUse">
+             <stop offset="0" stop-color="#ffffff"/><stop offset="0.25" stop-color="#ff0000"/><stop offset="1" stop-color="#000000"/></linearGradient>
+           <rect width="100" height="100" fill="url(#g)"/>"##,
+    );
+    let g = gradient(&only_path(&doc).fill);
+    assert_eq!(g.gradient.kind, GradientKind::Linear);
+    assert_pt(g.start, 10.0, 20.0);
+    assert_pt(g.end, 90.0, 30.0);
+    assert_matrix(&g.matrix, [0.75, 0.0, 0.0, -0.75, 0.0, 75.0]);
+    assert_eq!(g.gradient.stops.len(), 3);
+    assert_stop(g, 0, 0.0, 1.0, 1.0, 1.0);
+    assert_stop(g, 1, 0.25, 1.0, 0.0, 0.0);
+    assert_stop(g, 2, 1.0, 0.0, 0.0, 0.0);
+    // Page-space end points.
+    assert_pt(g.matrix.apply(g.start), 7.5, 60.0);
+    assert_pt(g.matrix.apply(g.end), 67.5, 52.5);
+    assert!(!has_warning(&doc, "gradient"), "{:?}", doc.warnings);
+}
+
+#[test]
+fn linear_gradient_object_bounding_box_and_transform() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<linearGradient id="g"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient>
+           <linearGradient id="t" href="#g" x2="0" y2="1" gradientTransform="rotate(90 0.5 0.5)"/>
+           <rect x="10" y="10" width="80" height="40" fill="url(#g)"/>
+           <g transform="translate(0 50)"><rect x="10" y="0" width="80" height="40" fill="url(#t)"/></g>"##,
+    );
+    let ps = paths(&doc);
+    let g = gradient(&ps[0].fill);
+    // Default objectBoundingBox: (0,0)->(1,0) in bbox space, folded into the matrix.
+    assert_pt(g.start, 0.0, 0.0);
+    assert_pt(g.end, 1.0, 0.0);
+    assert_pt(g.matrix.apply(g.start), 7.5, 67.5);
+    assert_pt(g.matrix.apply(g.end), 67.5, 67.5);
+    // href inherits stops; rotate(90) about the bbox centre turns the vertical
+    // axis (0.5,0)->(0.5,1)... here (0,0)->(0,1) into (1,0)->(0,0) in bbox units.
+    let t = gradient(&ps[1].fill);
+    assert_eq!(t.gradient.stops.len(), 2);
+    assert_stop(t, 1, 1.0, 0.0, 0.0, 1.0);
+    let ux = |x: f64, y: f64| (0.75 * (10.0 + 80.0 * x), 75.0 - 0.75 * (50.0 + 40.0 * y));
+    let (sx, sy) = ux(1.0, 0.0);
+    let (ex, ey) = ux(0.0, 0.0);
+    assert_pt(t.matrix.apply(t.start), sx, sy);
+    assert_pt(t.matrix.apply(t.end), ex, ey);
+}
+
+#[test]
+fn radial_gradient_geometry() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<radialGradient id="r" cx="50" cy="40" r="30" fx="45" fy="35" gradientUnits="userSpaceOnUse" gradientTransform="scale(2 1)">
+             <stop offset="0.1" stop-color="lime"/><stop offset="0.9" stop-color="#000080"/></radialGradient>
+           <radialGradient id="plain" cx="20" cy="20" r="10" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="white"/><stop offset="1" stop-color="black"/></radialGradient>
+           <rect width="100" height="100" fill="url(#r)"/><circle cx="20" cy="20" r="10" fill="url(#plain)"/>"##,
+    );
+    let ps = paths(&doc);
+    let g = gradient(&ps[0].fill);
+    assert_eq!(g.gradient.kind, GradientKind::Radial);
+    assert_pt(g.end, 50.0, 40.0);
+    assert_pt(g.start, 45.0, 35.0);
+    assert!(close(g.radius, 30.0));
+    assert_matrix(&g.matrix, [1.5, 0.0, 0.0, -0.75, 0.0, 75.0]);
+    assert_stop(g, 0, 0.1, 0.0, 1.0, 0.0);
+    assert_stop(g, 1, 0.9, 0.0, 0.0, 128.0 / 255.0);
+    let p = gradient(&ps[1].fill);
+    assert_pt(p.start, 20.0, 20.0);
+    assert_pt(p.end, 20.0, 20.0);
+    assert!(close(p.radius, 10.0));
+}
+
+#[test]
+fn radial_gradient_object_bounding_box() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<radialGradient id="r"><stop offset="0" stop-color="white"/><stop offset="1" stop-color="black"/></radialGradient>
+           <rect x="20" y="20" width="40" height="20" fill="url(#r)"/>"##,
+    );
+    let g = gradient(&only_path(&doc).fill);
+    assert_pt(g.end, 0.5, 0.5);
+    assert!(close(g.radius, 0.5));
+    // Centre at the bbox centre (40, 30) px.
+    assert_pt(g.matrix.apply(g.end), 30.0, 75.0 - 22.5);
+    assert_matrix(&g.matrix, [30.0, 0.0, 0.0, -15.0, 15.0, 60.0]);
+}
+
+#[test]
+fn gradient_on_stroke_is_shared_and_warnings() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<linearGradient id="g" spreadMethod="reflect"><stop offset="0" stop-color="red" stop-opacity="0.5"/><stop offset="1" stop-color="blue"/></linearGradient>
+           <rect width="10" height="10" fill="url(#g)" stroke="url(#g)"/>
+           <rect x="20" width="10" height="10" fill="url(#g)"/>"##,
+    );
+    let ps = paths(&doc);
+    let f = gradient(&ps[0].fill);
+    let s = gradient(&Some(ps[0].stroke.as_ref().unwrap().color.clone())).clone();
+    assert!(Arc::ptr_eq(&f.gradient, &s.gradient));
+    assert!(Arc::ptr_eq(&f.gradient, &gradient(&ps[1].fill).gradient));
+    assert_stop(f, 0, 0.0, 1.0, 0.0, 0.0);
+    assert_eq!(doc.warnings.iter().filter(|w| w.contains("stop-opacity")).count(), 1, "{:?}", doc.warnings);
+    assert_eq!(doc.warnings.iter().filter(|w| w.contains("spreadMethod")).count(), 1, "{:?}", doc.warnings);
+}
+
+#[test]
+fn single_stop_gradient_is_solid() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<linearGradient id="g"><stop offset="0.3" stop-color="#00ff00"/></linearGradient>
+           <rect width="10" height="10" fill="url(#g)"/>"##,
+    );
+    assert_eq!(only_path(&doc).fill, Some(Color::Rgb(0.0, 1.0, 0.0)));
+}
+
+#[test]
+fn gradient_inside_pattern_tile() {
+    let doc = parse(
+        r##"width="100" height="100""##,
+        r##"<linearGradient id="g" x1="0" y1="0" x2="10" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient>
+           <pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="5" fill="url(#g)"/></pattern>
+           <rect width="100" height="100" fill="url(#p)"/>"##,
+    );
+    let pp = pattern(&only_path(&doc).fill);
+    let Element::Path(t) = &pp.pattern.elements[0] else { panic!() };
+    let g = gradient(&t.fill);
+    // Gradient matrix maps into the (upright, pt) pattern space.
+    assert_matrix(&g.matrix, [0.75, 0.0, 0.0, -0.75, 0.0, 7.5]);
 }
 
 #[test]
@@ -587,3 +955,34 @@ fn end_to_end_svg_to_ai8() {
     // The red rect: 10..60 px -> 7.5..45 pt, y flipped: 150 - 7.5 = 142.5.
     assert!(ai.contains("7.5 142.5 m"), "{ai}");
 }
+
+#[test]
+fn end_to_end_patterns_and_gradients_all_modes() {
+    use ai8_converter::convert::{ConvertOptions, PatternMode, convert_file};
+    let svg = svg(
+        r##"width="200" height="200""##,
+        r##"<linearGradient id="g"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient>
+           <radialGradient id="r"><stop offset="0" stop-color="white"/><stop offset="1" stop-color="green"/></radialGradient>
+           <pattern id="inner" width="3" height="3" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="black"/></pattern>
+           <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse" patternTransform="rotate(30)">
+             <rect width="10" height="10" fill="url(#g)"/><rect x="10" y="10" width="10" height="10" fill="url(#inner)"/></pattern>
+           <rect width="100" height="100" fill="url(#dots)" stroke="url(#r)" stroke-width="4"/>
+           <circle cx="150" cy="150" r="40" fill="url(#r)"/>
+           <path d="M110 20 H190" stroke="url(#g)" stroke-width="10"/>"##,
+    );
+    let dir = std::env::temp_dir().join(format!("ai8-svg-e2e-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let input = dir.join("paints.svg");
+    std::fs::write(&input, &svg).unwrap();
+    for mode in [PatternMode::Native, PatternMode::Expand] {
+        let out_dir = dir.join(format!("{mode:?}"));
+        let opts = ConvertOptions { pattern_mode: mode, out_dir: Some(out_dir.clone()), ..Default::default() };
+        let report = convert_file(&input, &opts).unwrap_or_else(|e| panic!("{mode:?}: {e:#}"));
+        assert_eq!(report.outputs.len(), 1);
+        let ai = std::fs::read_to_string(&report.outputs[0]).unwrap();
+        let stats = common::validate_ai8(&ai);
+        assert!(stats.paths >= 3, "{mode:?}: {stats:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+

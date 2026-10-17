@@ -11,13 +11,22 @@
 use super::color::{ColorSpace, parse_colorspace};
 use super::function::Function;
 use super::lexer::{Lexer, Operand, Tok};
+use super::shading::{GradientGeom, ShadingError, gradient_from_shading};
 use super::{deref, dict_of, name_str, obj_num, obj_nums};
-use crate::ir::{Color, Element, LineCap, LineJoin, Matrix, PathItem, Point, Rect, Segment, Stroke, Subpath};
+use crate::ir::{
+    Color, Element, GradientPaint, LineCap, LineJoin, Matrix, PathItem, Pattern, PatternPaint, Point, Rect, Segment,
+    Stroke, Subpath,
+};
 use lopdf::{Dictionary, Document as PdfDoc, Object, ObjectId};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 const MAX_FORM_DEPTH: usize = 32;
+/// Maximum nesting of tiling patterns inside pattern cells.
+const MAX_PATTERN_DEPTH: usize = 8;
+/// Flat colour used when a pattern cannot be represented at all.
+const FALLBACK_GRAY: f64 = 0.5;
 const MAX_OPERANDS: usize = 4096;
 const MAX_GSTATE_DEPTH: usize = 4096;
 /// Decompressed size limit for one content stream.
@@ -56,8 +65,34 @@ struct Frame {
     elements: Vec<Element>,
 }
 
+/// Pattern / gradient state shared between a page interpreter and the
+/// sub-interpreters that run pattern cells.
+#[derive(Default)]
+struct PatternState {
+    /// Tiling patterns by (pattern object address, colour of use for
+    /// uncoloured patterns). Failures are cached too.
+    tiles: HashMap<(usize, String), Result<Arc<Pattern>, String>>,
+    /// Gradients by shading object address.
+    gradients: HashMap<usize, Result<GradientGeom, ShadingError>>,
+    /// Patterns whose cells are currently being interpreted (recursion guard).
+    building: Vec<usize>,
+    /// Number of tiling pattern definitions created (for naming).
+    count: usize,
+}
+
 pub struct Interp<'a> {
     doc: &'a PdfDoc,
+    /// Pattern space of the current content stream: the CTM at the start of
+    /// the page (or of a form XObject's content, or identity in a pattern
+    /// cell). Pattern matrices are concatenated with it.
+    pattern_base: Matrix,
+    /// Area painted by `sh` when no clip / shading /BBox applies (page or
+    /// pattern cell, in output space).
+    paint_area: Option<Rect>,
+    /// Inside an uncoloured (PaintType 2) pattern cell: the colour of use,
+    /// which overrides every colour operator of the cell.
+    forced_color: Option<Color>,
+    patterns: PatternState,
     gs: GState,
     gstack: Vec<GState>,
     /// `Q` never pops below this level (protects form XObject boundaries).
@@ -99,6 +134,37 @@ fn join_of(v: f64) -> LineJoin {
         2 => LineJoin::Bevel,
         _ => LineJoin::Miter,
     }
+}
+
+/// The /Matrix entry of a form or pattern dictionary (identity if absent).
+fn matrix_of(doc: &PdfDoc, d: &Dictionary) -> Matrix {
+    d.get(b"Matrix")
+        .ok()
+        .and_then(|o| obj_nums(doc, o))
+        .filter(|v| v.len() >= 6)
+        .map(|v| Matrix::new(v[0], v[1], v[2], v[3], v[4], v[5]))
+        .unwrap_or(Matrix::IDENTITY)
+}
+
+/// Remove rounding noise from a pattern matrix: Ghostscript writes e.g.
+/// `[0.99998 0 0 0.99998 0 0]` for an identity pattern matrix. A linear
+/// component within 1e-3 of -1, 0 or 1 is snapped when the change moves a
+/// point of the tile (of size `extent`) by less than 0.002 pt.
+fn snap_matrix(m: Matrix, extent: f64) -> Matrix {
+    let snap = |v: f64| {
+        let n = v.round();
+        let d = (v - n).abs();
+        if n.abs() <= 1.0 && d < 1e-3 && d * extent.max(1.0) < 2e-3 { n } else { v }
+    };
+    Matrix { a: snap(m.a), b: snap(m.b), c: snap(m.c), d: snap(m.d), ..m }
+}
+
+/// Closed polygon subpath.
+fn polygon(pts: &[Point]) -> Subpath {
+    let mut sp = Subpath::new(pts[0]);
+    sp.segments.extend(pts[1..].iter().map(|p| Segment::Line(*p)));
+    sp.closed = true;
+    sp
 }
 
 /// If `clip` is a single axis-aligned rectangle, return it.
@@ -194,6 +260,10 @@ impl<'a> Interp<'a> {
         };
         Self {
             doc,
+            pattern_base: base,
+            paint_area: None,
+            forced_color: None,
+            patterns: PatternState::default(),
             gs,
             gstack: Vec::new(),
             q_floor: 0,
@@ -209,6 +279,11 @@ impl<'a> Interp<'a> {
             rgb: Rc::new(ColorSpace::Rgb),
             cmyk: Rc::new(ColorSpace::Cmyk),
         }
+    }
+
+    /// Set the page rectangle (output space), used by `sh` without a clip.
+    pub fn set_paint_area(&mut self, area: Rect) {
+        self.paint_area = Some(area);
     }
 
     pub fn warn(&mut self, msg: impl Into<String>) {
@@ -467,7 +542,11 @@ impl<'a> Interp<'a> {
                     self.do_xobject(name, res);
                 }
             }
-            b"sh" => self.warn("smooth shadings (gradients) were skipped"),
+            b"sh" => {
+                if let Some(name) = args.last().and_then(Operand::as_name) {
+                    self.shade(name, res);
+                }
+            }
             // --- text
             b"Tj" | b"TJ" | b"'" | b"\"" => self.warn(
                 "text was not converted (it is not outlined); route the file through Ghostscript to convert text to outlines",
@@ -548,9 +627,13 @@ impl<'a> Interp<'a> {
         if subs.is_empty() {
             return;
         }
-        let fill_c = if fill { self.gs.fill.color.clone() } else { None };
+        let (fill_color, stroke_color) = match &self.forced_color {
+            Some(c) => (Some(c.clone()), Some(c.clone())),
+            None => (self.gs.fill.color.clone(), self.gs.stroke.color.clone()),
+        };
+        let fill_c = if fill { fill_color } else { None };
         let stroke_s = if stroke {
-            self.gs.stroke.color.clone().map(|color| {
+            stroke_color.map(|color| {
                 let scale = self.gs.ctm.mean_scale();
                 let dash: Vec<f64> = if self.gs.dash.iter().all(|d| *d <= 0.0) {
                     Vec::new()
@@ -637,12 +720,20 @@ impl<'a> Interp<'a> {
     }
 
     fn set_color(&mut self, stroke: bool, args: &[Operand], res: Option<&'a Dictionary>) {
+        // Colour operators are ignored inside uncoloured pattern cells.
+        if self.forced_color.is_some() {
+            return;
+        }
         let cs = if stroke { self.gs.stroke.cs.clone() } else { self.gs.fill.cs.clone() };
         let color = if let ColorSpace::Pattern { base } = &*cs {
-            self.warn("pattern fills approximated with a flat colour");
             let comps = nums(args);
-            let pat = args.last().and_then(Operand::as_name).and_then(|n| self.lookup(res, b"Pattern", n));
-            Some(self.pattern_color(pat, base.as_deref(), &comps).unwrap_or(Color::Gray(0.5)))
+            match args.last().and_then(Operand::as_name) {
+                Some(name) => self.pattern_paint(name, res, base.as_deref(), &comps),
+                None => {
+                    self.warn("a pattern colour was set without a pattern name; a flat colour was used");
+                    Some(Color::Gray(FALLBACK_GRAY))
+                }
+            }
         } else {
             let n = cs.n_comps();
             let mut v = nums(args);
@@ -659,30 +750,230 @@ impl<'a> Interp<'a> {
         p.color = color;
     }
 
-    /// Approximate a pattern by a flat colour.
-    fn pattern_color(&mut self, pat: Option<&'a Object>, base: Option<&ColorSpace>, comps: &[f64]) -> Option<Color> {
-        let dict = dict_of(self.doc, pat?)?;
-        let ptype = dict.get(b"PatternType").ok().and_then(|o| obj_num(deref(self.doc, o)))? as i64;
-        match ptype {
-            1 => {
-                let paint_type = dict.get(b"PaintType").ok().and_then(|o| obj_num(deref(self.doc, o))).unwrap_or(1.0);
-                if paint_type as i64 == 2 {
-                    let base = base?;
+    // --- patterns and shadings -------------------------------------------------
+
+    /// Resolve `/name scn` in a Pattern colour space to a paint. `None`
+    /// means "paint nothing" (e.g. an uncoloured pattern in Separation /None).
+    fn pattern_paint(
+        &mut self,
+        name: &[u8],
+        res: Option<&'a Dictionary>,
+        base: Option<&ColorSpace>,
+        comps: &[f64],
+    ) -> Option<Color> {
+        let label = name_str(name);
+        let fallback = Some(Color::Gray(FALLBACK_GRAY));
+        let Some(obj) = self.lookup(res, b"Pattern", name) else {
+            self.warn(format!("pattern /{label} was not found; a flat colour was used"));
+            return fallback;
+        };
+        let doc = self.doc;
+        let Some(dict) = dict_of(doc, obj) else {
+            self.warn(format!("pattern /{label} is not a dictionary; a flat colour was used"));
+            return fallback;
+        };
+        let num = |k: &[u8]| dict.get(k).ok().and_then(|o| obj_num(deref(doc, o)));
+        let matrix = matrix_of(doc, dict);
+        let det = matrix.a * matrix.d - matrix.b * matrix.c;
+        if !(det.abs() > 1e-12 && det.is_finite()) {
+            self.warn(format!("pattern /{label} has a degenerate /Matrix; a flat colour was used"));
+            return fallback;
+        }
+        match num(b"PatternType").map(|v| v as i64) {
+            Some(1) => {
+                let uncoloured = num(b"PaintType").map(|v| v as i64) == Some(2);
+                let use_color = if uncoloured {
+                    let Some(base) = base else {
+                        self.warn(format!(
+                            "uncoloured pattern /{label} was used without an underlying colour space; a flat colour was used"
+                        ));
+                        return fallback;
+                    };
                     let n = base.n_comps();
                     if comps.len() < n {
-                        return None;
+                        self.warn(format!("uncoloured pattern /{label} was used without a colour; a flat colour was used"));
+                        return fallback;
                     }
-                    base.to_color(&comps[comps.len() - n..])
+                    // Separation /None and the like paint nothing.
+                    Some(base.to_color(&comps[comps.len() - n..])?)
                 } else {
                     None
+                };
+                let flat = use_color.clone().or(fallback);
+                let key = obj as *const Object as usize;
+                match self.tiling_pattern(key, obj, dict, use_color, res) {
+                    Ok(pattern) => {
+                        let extent = pattern.x_step.max(pattern.y_step).max(pattern.bbox.width()).max(pattern.bbox.height());
+                        let matrix = snap_matrix(matrix, extent).then(&self.pattern_base);
+                        Some(Color::Pattern(PatternPaint { pattern, matrix }))
+                    }
+                    Err(e) => {
+                        self.warn(format!("pattern /{label}: {e}; a flat colour was used"));
+                        flat
+                    }
                 }
             }
-            2 => {
-                let sh = dict_of(self.doc, deref(self.doc, dict.get(b"Shading").ok()?))?;
-                self.shading_mid_color(sh)
+            Some(2) => {
+                let Some(sh) = dict.get(b"Shading").ok().and_then(|o| dict_of(doc, o)) else {
+                    self.warn(format!("shading pattern /{label} has no /Shading; a flat colour was used"));
+                    return fallback;
+                };
+                let m = matrix.then(&self.pattern_base);
+                Some(self.shading_paint(sh, m))
             }
-            _ => None,
+            _ => {
+                self.warn(format!("pattern /{label} has a missing or unknown /PatternType; a flat colour was used"));
+                fallback
+            }
         }
+    }
+
+    /// The (cached) definition of a tiling pattern for one colour of use.
+    fn tiling_pattern(
+        &mut self,
+        key: usize,
+        obj: &'a Object,
+        dict: &'a Dictionary,
+        color: Option<Color>,
+        parent_res: Option<&'a Dictionary>,
+    ) -> Result<Arc<Pattern>, String> {
+        let cache_key = (key, color.as_ref().map(|c| format!("{c:?}")).unwrap_or_default());
+        if let Some(r) = self.patterns.tiles.get(&cache_key) {
+            return r.clone();
+        }
+        if self.patterns.building.contains(&key) {
+            return Err("the pattern uses itself".into());
+        }
+        if self.patterns.building.len() >= MAX_PATTERN_DEPTH {
+            return Err("patterns are nested too deeply".into());
+        }
+        let r = self.build_tile(key, obj, dict, color, parent_res);
+        self.patterns.tiles.insert(cache_key, r.clone());
+        r
+    }
+
+    /// Interpret a pattern cell into IR elements in pattern space.
+    fn build_tile(
+        &mut self,
+        key: usize,
+        obj: &'a Object,
+        dict: &'a Dictionary,
+        color: Option<Color>,
+        parent_res: Option<&'a Dictionary>,
+    ) -> Result<Arc<Pattern>, String> {
+        let doc = self.doc;
+        let Object::Stream(st) = obj else { return Err("the tiling pattern has no content stream".into()) };
+        let bbox = dict
+            .get(b"BBox")
+            .ok()
+            .and_then(|o| obj_nums(doc, o))
+            .filter(|v| v.len() >= 4)
+            .map(|v| Rect { llx: v[0].min(v[2]), lly: v[1].min(v[3]), urx: v[0].max(v[2]), ury: v[1].max(v[3]) })
+            .filter(|r| r.width() > 1e-9 && r.height() > 1e-9)
+            .ok_or("missing or empty /BBox")?;
+        let step = |k: &[u8], default: f64| match dict.get(k).ok().and_then(|o| obj_num(deref(doc, o))) {
+            Some(v) if v.abs() > 1e-9 => Ok(v.abs()),
+            Some(_) => Err(format!("zero /{}", name_str(k))),
+            None => Ok(default),
+        };
+        let x_step = step(b"XStep", bbox.width())?;
+        let y_step = step(b"YStep", bbox.height())?;
+        let content = st.get_plain_content_with_limit(MAX_STREAM).map_err(|e| format!("could not decode the pattern cell ({e})"))?;
+        let res = dict.get(b"Resources").ok().and_then(|o| dict_of(doc, o)).or(parent_res);
+
+        let mut child = Interp::new(doc, Matrix::IDENTITY);
+        child.paint_area = Some(bbox);
+        child.forced_color = color;
+        child.patterns = std::mem::take(&mut self.patterns);
+        child.patterns.building.push(key);
+        child.run(&content, res);
+        child.patterns.building.pop();
+        self.patterns = std::mem::take(&mut child.patterns);
+        self.images += std::mem::take(&mut child.images);
+        let (elements, warnings) = child.finish();
+        for w in warnings {
+            self.warn(w);
+        }
+        self.patterns.count += 1;
+        let name = format!("Pattern {}", self.patterns.count);
+        Ok(Arc::new(Pattern { name, bbox, x_step, y_step, elements }))
+    }
+
+    /// Gradient paint for a shading dictionary (shading space -> output via
+    /// `matrix`), or a flat colour when it cannot be represented.
+    fn shading_paint(&mut self, sh: &'a Dictionary, matrix: Matrix) -> Color {
+        match self.gradient(sh) {
+            Ok(g) => Color::Gradient(GradientPaint { gradient: g.gradient, start: g.start, end: g.end, radius: g.radius, matrix }),
+            Err(e) => {
+                match e {
+                    ShadingError::Unsupported(t) => self.warn(format!(
+                        "function-based and mesh gradients (ShadingType {t}) are not supported; approximated with a flat colour"
+                    )),
+                    ShadingError::Malformed(m) => {
+                        self.warn(format!("a gradient could not be read ({m}); approximated with a flat colour"))
+                    }
+                }
+                self.shading_mid_color(sh).unwrap_or(Color::Gray(FALLBACK_GRAY))
+            }
+        }
+    }
+
+    fn gradient(&mut self, sh: &'a Dictionary) -> Result<GradientGeom, ShadingError> {
+        let key = sh as *const Dictionary as usize;
+        if let Some(r) = self.patterns.gradients.get(&key) {
+            return r.clone();
+        }
+        let r = match sh.get(b"ColorSpace").ok().map(|o| deref(self.doc, o)) {
+            None => Err(ShadingError::Malformed("missing /ColorSpace".into())),
+            Some(o) => {
+                let cs = self.parse_cs_cached(o, b"shading");
+                let mut w = Vec::new();
+                let r = gradient_from_shading(self.doc, sh, &cs, &mut w);
+                for m in w {
+                    self.warn(m);
+                }
+                r
+            }
+        };
+        self.patterns.gradients.insert(key, r.clone());
+        r
+    }
+
+    /// `sh`: paint a shading over the current clip region (or its /BBox, or
+    /// the page / pattern cell).
+    fn shade(&mut self, name: &[u8], res: Option<&'a Dictionary>) {
+        let Some(sh) = self.lookup(res, b"Shading", name).and_then(|o| dict_of(self.doc, o)) else {
+            self.warn(format!("shading /{} was not found and was skipped", name_str(name)));
+            return;
+        };
+        let paint = self.shading_paint(sh, self.gs.ctm);
+        let bbox = sh.get(b"BBox").ok().and_then(|o| obj_nums(self.doc, o)).filter(|v| v.len() >= 4);
+        let clip = self.frames.iter().rev().find_map(|f| match &f.kind {
+            FrameKind::Clip { clip, even_odd } => Some((clip.clone(), *even_odd)),
+            _ => None,
+        });
+        let (area, even_odd) = if let Some(b) = bbox {
+            let (x0, y0, x1, y1) = (b[0], b[1], b[2], b[3]);
+            let corners = [self.pt(x0, y0), self.pt(x1, y0), self.pt(x1, y1), self.pt(x0, y1)];
+            (vec![polygon(&corners)], false)
+        } else if let Some(c) = clip {
+            c
+        } else if let Some(r) = self.paint_area {
+            let corners = [
+                Point::new(r.llx, r.lly),
+                Point::new(r.urx, r.lly),
+                Point::new(r.urx, r.ury),
+                Point::new(r.llx, r.ury),
+            ];
+            (vec![polygon(&corners)], false)
+        } else {
+            return;
+        };
+        let mut item = PathItem::new(area);
+        item.even_odd = even_odd;
+        item.fill = Some(self.forced_color.clone().unwrap_or(paint));
+        item.fill_overprint = self.gs.fill_op;
+        self.push_element(Element::Path(item));
     }
 
     /// Colour at the middle of a shading's parameter domain.
@@ -786,13 +1077,7 @@ impl<'a> Interp<'a> {
             }
         };
         let d = &stream.dict;
-        let matrix = d
-            .get(b"Matrix")
-            .ok()
-            .and_then(|o| obj_nums(self.doc, o))
-            .filter(|v| v.len() >= 6)
-            .map(|v| Matrix::new(v[0], v[1], v[2], v[3], v[4], v[5]))
-            .unwrap_or(Matrix::IDENTITY);
+        let matrix = matrix_of(self.doc, d);
         let bbox = d.get(b"BBox").ok().and_then(|o| obj_nums(self.doc, o)).filter(|v| v.len() >= 4);
         let res = d.get(b"Resources").ok().and_then(|o| dict_of(self.doc, deref(self.doc, o))).or(parent_res);
 
@@ -804,6 +1089,9 @@ impl<'a> Interp<'a> {
         self.gstack.push(self.gs.clone());
         self.q_floor = self.gstack.len();
         self.gs.ctm = matrix.then(&self.gs.ctm);
+        // Patterns used in the form map to the form's space at invocation
+        // (ISO 32000-1 §8.7.3.1).
+        let saved_base = std::mem::replace(&mut self.pattern_base, self.gs.ctm);
         let level = self.gstack.len();
         self.frames.push(Frame { kind: FrameKind::Group, level, elements: Vec::new() });
         if let Some(b) = bbox {
@@ -832,6 +1120,7 @@ impl<'a> Interp<'a> {
             self.gstack.truncate(saved_len);
         }
         self.close_frames_above(saved_len);
+        self.pattern_base = saved_base;
         self.q_floor = saved_floor;
         self.path = saved_path;
         self.pending_clip = saved_clip;

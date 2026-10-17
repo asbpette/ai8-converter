@@ -2,3 +2,4 @@ target/
 *.ai
 !tests/fixtures/**
 .DS_Store
+dist/

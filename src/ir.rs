@@ -261,6 +261,8 @@ impl PathItem {
     }
 }
 
+// Paths dominate documents, so boxing them would only add indirection.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Element {
     Path(PathItem),

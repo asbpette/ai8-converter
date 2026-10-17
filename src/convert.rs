@@ -2,7 +2,7 @@
 
 use crate::ai8::{ColorMode, WriteOptions, write_ai8};
 use crate::ir::Document;
-use crate::{ghostscript, pdf, svg};
+use crate::{ghostscript, patterns, pdf, svg};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
@@ -156,11 +156,14 @@ pub fn convert_file(input: &Path, opts: &ConvertOptions) -> Result<ConvertReport
     if let Some(dir) = &opts.out_dir {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
-    for (i, doc) in docs.iter().enumerate() {
+    for (i, mut doc) in docs.into_iter().enumerate() {
+        if opts.pattern_mode == PatternMode::Expand {
+            patterns::expand_patterns(&mut doc);
+        }
         let out = output_path(input, opts.out_dir.as_deref(), i, total);
         let title = out.file_name().and_then(|s| s.to_str()).unwrap_or("Untitled.ai").to_string();
         let wopts = WriteOptions { title, creator_for: String::new(), color_mode: opts.color_mode };
-        let ai = write_ai8(doc, &wopts);
+        let ai = write_ai8(&doc, &wopts);
         // AI files are 8-bit; our writer only emits ASCII.
         std::fs::write(&out, ai.as_bytes()).with_context(|| format!("writing {}", out.display()))?;
         report.paths_written += doc.path_count();

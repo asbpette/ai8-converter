@@ -8,6 +8,7 @@ formats.
 - **Inputs:** EPS, PS, PDF, AI (both PDF-based Illustrator 9+ files and legacy PostScript-based ones), SVG and SVGZ
 - **Output:** one Illustrator 8 file per page (`name.ai`, or `name_p1.ai`, `name_p2.ai`, … for multi-page input)
 - **What is kept:** paths, curves, compound paths, groups, clipping, fills and strokes (width, caps, joins, dashes), CMYK, RGB and grey colours, and spot colours (for example a `CutContour` cut line), plus overprint
+- **Patterns and gradients:** tiling patterns (PDF tiling patterns, SVG `<pattern>`) and linear and radial gradients (PDF axial/radial shadings, SVG `<linearGradient>`/`<radialGradient>`) are carried over; see [Patterns and gradients](#patterns-and-gradients)
 - **Text:** converted to outlines, so no fonts are needed on the receiving machine
 
 ## Ghostscript
@@ -47,7 +48,10 @@ Ghostscript run has a time limit of 120 seconds.
    - **RGB:** convert CMYK and grey to RGB
 
    Spot colours are always kept.
-4. Click **Convert**. Each file shows *Pending*, *Converting*, *Done* (with its output paths and any warnings) or *Failed* (with the error). For a finished file, **Open output folder** shows the result.
+4. Pick the pattern handling (see [Patterns and gradients](#patterns-and-gradients)):
+   - **Native Illustrator patterns:** pattern fills stay pattern swatches you can edit in Illustrator
+   - **Expand to paths (for cutters):** each pattern fill is replaced by plain tile paths clipped to the filled shape
+5. Click **Convert**. Each file shows *Pending*, *Converting*, *Done* (with its output paths and any warnings) or *Failed* (with the error). For a finished file, **Open output folder** shows the result.
 
 If an output file would overwrite its input (an `.ai` input written next to
 itself), `_ai8` is added to the output name.
@@ -55,12 +59,13 @@ itself), `_ai8` is added to the output name.
 ## Command line
 
 ```
-ai8conv [--out DIR] [--color preserve|cmyk|rgb] [--no-outline-text] [--gs PATH] FILES...
+ai8conv [--out DIR] [--color preserve|cmyk|rgb] [--patterns native|expand] [--no-outline-text] [--gs PATH] FILES...
 ```
 
 ```sh
 ai8conv logo.eps                         # writes logo.ai next to logo.eps
 ai8conv --out converted --color cmyk *.pdf *.svg
+ai8conv --patterns expand pattern-fill.svg  # pattern fills as plain paths for a cutter
 ai8conv --gs "C:\Program Files\gs\gs10.04.0\bin\gswin64c.exe" sticker.eps
 ```
 
@@ -97,6 +102,27 @@ scripts/bundle-macos.sh --gs-dir DIR  # also bundle a self-contained Ghostscript
 The bundle has an ad-hoc signature only. On another Mac, the first launch may
 need right-click → **Open**, or `xattr -dr com.apple.quarantine "AI8 Converter.app"`.
 
+## Patterns and gradients
+
+Pattern fills and strokes are written in one of two ways, chosen with the
+**Patterns** setting in the app or `--patterns` on the command line:
+
+- `native` (default): each pattern becomes an Illustrator pattern swatch and
+  the shapes are filled or stroked with it, so the result stays editable in
+  Illustrator. Patterns used inside other patterns are kept too.
+- `expand`: each pattern fill is replaced by copies of the tile artwork,
+  clipped to the shape. Use this for cutters, plotters and RIPs that don't
+  understand pattern fills.
+
+Linear and radial gradients are written as Illustrator gradients with their
+colour stops and geometry (start and end point, centre, radius and focal
+point).
+
+SVG details: `patternUnits`, `patternContentUnits`, `patternTransform`,
+`viewBox` on patterns, `gradientUnits`, `gradientTransform` and `href`
+inheritance are all supported. A `<pattern>` used by several shapes becomes
+one swatch, named after its `id`.
+
 **CI:** `.github/workflows/build.yml` builds and tests on `windows-latest` and
 `macos-latest` with Ghostscript installed. It uploads the Windows `.exe` files
 and the zipped macOS `.app` as artifacts.
@@ -104,7 +130,8 @@ and the zipped macOS `.app` as artifacts.
 ## Limitations
 
 - Raster images are not converted. They are dropped and a warning is shown.
-- Gradients, shadings, patterns and transparency (opacity, soft masks, blend modes) are not converted. Gradients and patterns are approximated by a flat colour or dropped, and a warning is shown.
+- Transparency (opacity, soft masks, blend modes) is not converted, and a warning is shown. This includes gradient `stop-opacity`.
+- SVG gradient `spreadMethod="reflect"`/`"repeat"` is written as `pad`, and a radial gradient's focal radius (`fr`) is ignored; both show a warning. Shading types other than linear and radial are approximated by a flat colour.
 - Text always becomes outlines; no editable text is written. A PDF with live text that is converted without Ghostscript (or with outlining off) loses that text, and a warning is shown.
 - SVG filters, masks and embedded bitmaps are not supported. CSS and `<use>` are supported. SVG `<text>` is outlined with the fonts installed on the computer, so a missing font falls back to a substitute.
 - The output is a plain AI8 file: one layer, and no embedded preview or procsets. Illustrator and AI-importing applications read it directly, but sending it straight to a PostScript printer won't work.
