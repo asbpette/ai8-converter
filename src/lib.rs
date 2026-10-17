@@ -9,6 +9,7 @@ pub mod patterns;
 pub mod pdf;
 pub mod preview;
 pub mod svg;
+pub mod svg_export;
 
 pub use ai8::{ColorMode, WriteOptions, write_ai8};
-pub use convert::{ConvertOptions, PatternMode, ConvertReport, InputKind, convert_file, detect_kind};
+pub use convert::{ConvertOptions, ConvertReport, InputKind, OutputFormat, PatternMode, convert_file, convert_file_to, detect_kind};

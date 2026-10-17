@@ -1,6 +1,6 @@
 //! Command-line converter: EPS / PS / PDF / AI / SVG / DXF -> Adobe Illustrator 8.
 
-use ai8_converter::{ColorMode, ConvertOptions, PatternMode, convert_file};
+use ai8_converter::{ColorMode, ConvertOptions, OutputFormat, PatternMode, convert_file_to};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -17,6 +17,9 @@ OPTIONS:
                              editable Illustrator pattern swatches; expand
                              replaces them by plain clipped tile paths (for
                              cutters, plotters and RIPs without pattern support)
+    -f, --format FORMAT      Output format: ai (default, Illustrator 8) or svg
+                             (an SVG with the same cleaned-up paths; an SVG
+                             input is written as a new name_fixed.svg)
         --no-outline-text    Keep PDF/AI input as-is instead of outlining text
                              with Ghostscript (EPS/PS text is always outlined)
         --gs PATH            Ghostscript executable to use (default: auto-detect,
@@ -40,6 +43,7 @@ struct CliOpts {
     out: Option<PathBuf>,
     color: ColorMode,
     patterns: PatternMode,
+    format: OutputFormat,
     outline_text: bool,
     gs: Option<PathBuf>,
 }
@@ -61,10 +65,25 @@ fn parse_patterns(s: &str) -> Result<PatternMode, String> {
     }
 }
 
+fn parse_format(s: &str) -> Result<OutputFormat, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "ai" | "ai8" => Ok(OutputFormat::Ai8),
+        "svg" => Ok(OutputFormat::Svg),
+        _ => Err(format!("invalid output format '{s}' (expected ai or svg)")),
+    }
+}
+
 fn parse_args<I: IntoIterator<Item = std::ffi::OsString>>(args: I) -> Result<Cli, String> {
     let mut files = Vec::new();
     let mut opts =
-        CliOpts { out: None, color: ColorMode::Preserve, patterns: PatternMode::Native, outline_text: true, gs: None };
+        CliOpts {
+            out: None,
+            color: ColorMode::Preserve,
+            patterns: PatternMode::Native,
+            format: OutputFormat::Ai8,
+            outline_text: true,
+            gs: None,
+        };
     let mut it = args.into_iter();
     let mut only_files = false;
     while let Some(arg) = it.next() {
@@ -90,6 +109,7 @@ fn parse_args<I: IntoIterator<Item = std::ffi::OsString>>(args: I) -> Result<Cli
             "-o" | "--out" => opts.out = Some(PathBuf::from(value("a directory")?)),
             "-c" | "--color" | "--colour" => opts.color = parse_color(&value("a mode")?.to_string_lossy())?,
             "-p" | "--patterns" => opts.patterns = parse_patterns(&value("a mode")?.to_string_lossy())?,
+            "-f" | "--format" => opts.format = parse_format(&value("a format")?.to_string_lossy())?,
             "--no-outline-text" => opts.outline_text = false,
             "--gs" => opts.gs = Some(PathBuf::from(value("a path")?)),
             "--" => only_files = true,
@@ -138,7 +158,7 @@ fn main() -> ExitCode {
     };
     let mut failed = 0usize;
     for f in &files {
-        match convert_file(f, &opts) {
+        match convert_file_to(f, &opts, o.format) {
             Ok(report) => {
                 for out in &report.outputs {
                     println!("{} -> {}", f.display(), out.display());
@@ -184,6 +204,16 @@ mod tests {
         assert!(!opts.outline_text);
         assert_eq!(opts.gs, Some(PathBuf::from("/x/gs")));
         assert_eq!(opts.patterns, PatternMode::Native);
+        assert_eq!(opts.format, OutputFormat::Ai8);
+    }
+
+    #[test]
+    fn parses_format() {
+        let Cli::Run { opts, .. } = p(&["--format", "SVG", "a"]).unwrap() else { panic!() };
+        assert_eq!(opts.format, OutputFormat::Svg);
+        let Cli::Run { opts, .. } = p(&["-f", "ai", "a"]).unwrap() else { panic!() };
+        assert_eq!(opts.format, OutputFormat::Ai8);
+        assert!(p(&["--format", "dxf", "a"]).unwrap_err().contains("invalid output format"));
     }
 
     #[test]

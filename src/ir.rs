@@ -23,6 +23,22 @@ pub enum Segment {
     Curve(Point, Point, Point),
 }
 
+impl Segment {
+    pub fn end(&self) -> Point {
+        match self {
+            Segment::Line(p) | Segment::Curve(_, _, p) => *p,
+        }
+    }
+}
+
+/// A closed subpath whose end point is this close to its start point (in
+/// points, about 0.035 mm) is closed by moving the end point onto the start.
+pub const CLOSE_SNAP: f64 = 0.1;
+
+fn near(a: Point, b: Point, tol: f64) -> bool {
+    (a.x - b.x).abs() <= tol && (a.y - b.y).abs() <= tol
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Subpath {
     pub start: Point,
@@ -33,6 +49,37 @@ pub struct Subpath {
 impl Subpath {
     pub fn new(start: Point) -> Self {
         Self { start, segments: Vec::new(), closed: false }
+    }
+
+    /// The segments as they should be written for laser/cutter software:
+    /// zero-length segments (SVG `h0`, PDF `l` to the current point) are
+    /// dropped, since such programs may discard paths containing them, and a
+    /// closed subpath always ends exactly on its start point. Writers still
+    /// mark the path closed, but some programs only draw the segments
+    /// present in the file and ignore the implicit closing edge. An end
+    /// point that misses the start by less than [`CLOSE_SNAP`] is moved onto
+    /// it instead of adding a tiny closing segment. Open subpaths keep any
+    /// gap.
+    pub fn cutter_segments(&self) -> Vec<Segment> {
+        let mut segs: Vec<Segment> = Vec::with_capacity(self.segments.len() + 1);
+        let mut cur = self.start;
+        for s in &self.segments {
+            let degenerate = match s {
+                Segment::Line(p) => near(*p, cur, 1e-4),
+                Segment::Curve(a, b, c) => near(*a, cur, 1e-4) && near(*b, cur, 1e-4) && near(*c, cur, 1e-4),
+            };
+            if !degenerate {
+                segs.push(s.clone());
+                cur = s.end();
+            }
+        }
+        if self.closed && !near(cur, self.start, 1e-4) {
+            match segs.last_mut() {
+                Some(Segment::Line(p)) | Some(Segment::Curve(_, _, p)) if near(*p, self.start, CLOSE_SNAP) => *p = self.start,
+                _ => segs.push(Segment::Line(self.start)),
+            }
+        }
+        segs
     }
 
     pub fn points(&self) -> impl Iterator<Item = Point> + '_ {

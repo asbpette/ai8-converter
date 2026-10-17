@@ -51,20 +51,6 @@ pub enum ColorMode {
     Rgb,
 }
 
-/// A closed path whose end point is this close to its start point (in
-/// points, about 0.035 mm) is closed by moving the end point onto the start.
-const CLOSE_SNAP: f64 = 0.1;
-
-fn near(a: Point, b: Point, tol: f64) -> bool {
-    (a.x - b.x).abs() <= tol && (a.y - b.y).abs() <= tol
-}
-
-fn end_of(s: &Segment) -> Point {
-    match s {
-        Segment::Line(p) | Segment::Curve(_, _, p) => *p,
-    }
-}
-
 /// Format a number compactly: at most 4 decimals, no trailing zeros, no "-0".
 pub fn num(v: f64) -> String {
     if !v.is_finite() {
@@ -792,31 +778,7 @@ impl Writer {
     fn subpath(&mut self, sp: &Subpath) {
         let (x, y) = self.pt(&sp.start);
         self.line(&format!("{} {} m", x, y));
-        // Zero-length segments (SVG `h0`, PDF `l` to the current point) are
-        // dropped: laser/cutter programs may discard paths containing them.
-        let mut segs: Vec<Segment> = Vec::with_capacity(sp.segments.len() + 1);
-        let mut cur = sp.start;
-        for s in &sp.segments {
-            let degenerate = match s {
-                Segment::Line(p) => near(*p, cur, 1e-4),
-                Segment::Curve(a, b, c) => near(*a, cur, 1e-4) && near(*b, cur, 1e-4) && near(*c, cur, 1e-4),
-            };
-            if !degenerate {
-                segs.push(s.clone());
-                cur = end_of(s);
-            }
-        }
-        // The closing edge is always written out, even though the lowercase
-        // paint operator closes the path: some laser/cutter programs only
-        // draw the segments present in the file and drop the implicit edge.
-        // An end point that misses the start by a hair is moved onto it
-        // instead of adding a tiny closing segment.
-        if sp.closed && !near(cur, sp.start, 1e-4) {
-            match segs.last_mut() {
-                Some(Segment::Line(p)) | Some(Segment::Curve(_, _, p)) if near(*p, sp.start, CLOSE_SNAP) => *p = sp.start,
-                _ => segs.push(Segment::Line(sp.start)),
-            }
-        }
+        let segs = sp.cutter_segments();
         for s in &segs {
             match s {
                 Segment::Line(p) => {

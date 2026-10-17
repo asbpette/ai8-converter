@@ -1,6 +1,6 @@
 [package]
 name = "ai8-converter"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 repository = "https://github.com/asbpette/ai8-converter"
 description = "Convert EPS / PS / PDF / AI / SVG vector files to Adobe Illustrator 8 (.ai)"

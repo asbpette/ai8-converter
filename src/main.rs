@@ -1,7 +1,7 @@
 //! AI8 Converter desktop GUI.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-use ai8_converter::{ColorMode, ConvertOptions, ConvertReport, PatternMode, convert_file, ghostscript, preview};
+use ai8_converter::{ColorMode, ConvertOptions, ConvertReport, OutputFormat, PatternMode, convert_file_to, ghostscript, preview};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -25,11 +25,22 @@ enum Status {
     Failed(String),
 }
 
+/// State of the "Save as SVG" export of one file.
+#[derive(Debug, Clone, PartialEq, Default)]
+enum SvgExport {
+    #[default]
+    None,
+    Saving,
+    Saved(Vec<PathBuf>),
+    Failed(String),
+}
+
 #[derive(Debug, Clone)]
 struct QueueItem {
     id: u64,
     path: PathBuf,
     status: Status,
+    svg: SvgExport,
 }
 
 /// Result of adding paths to the queue.
@@ -95,7 +106,7 @@ impl Queue {
                 continue;
             }
             keys.push(key);
-            self.items.push(QueueItem { id: self.next_id, path: p, status: Status::Pending });
+            self.items.push(QueueItem { id: self.next_id, path: p, status: Status::Pending, svg: SvgExport::None });
             self.next_id += 1;
             outcome.added += 1;
         }
@@ -242,22 +253,26 @@ fn open_path(dir: &Path) {
     }
 }
 
+/// Convert one file; a panic in a parser must not take the whole app down.
+fn convert_guarded(path: &Path, opts: &ConvertOptions, format: OutputFormat) -> Result<ConvertReport, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| convert_file_to(path, opts, format)))
+        .map_err(|p| {
+            let msg = p
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "unknown error".into());
+            format!("internal error: {msg}")
+        })
+        .and_then(|r| r.map_err(|e| format!("{e:#}")))
+}
+
 fn spawn_worker(jobs: Vec<(u64, PathBuf)>, opts: ConvertOptions, tx: Sender<WorkerMsg>, ctx: egui::Context) {
     std::thread::spawn(move || {
         for (id, path) in jobs {
             let _ = tx.send(WorkerMsg::Started(id));
             ctx.request_repaint();
-            // A panic in a parser must not take the whole app down.
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| convert_file(&path, &opts)))
-                .map_err(|p| {
-                    let msg = p
-                        .downcast_ref::<String>()
-                        .cloned()
-                        .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
-                        .unwrap_or_else(|| "unknown error".into());
-                    format!("internal error: {msg}")
-                })
-                .and_then(|r| r.map_err(|e| format!("{e:#}")));
+            let result = convert_guarded(&path, &opts, OutputFormat::Ai8);
             let _ = tx.send(WorkerMsg::Finished(id, result));
             ctx.request_repaint();
         }
@@ -482,6 +497,7 @@ impl PreviewWindow {
 enum UiAction {
     Preview { ai: PathBuf, source: PathBuf, page: usize },
     OpenPdf(PathBuf),
+    SaveSvg(u64),
 }
 
 struct App {
@@ -495,6 +511,7 @@ struct App {
     notice: Option<String>,
     preview: Option<PreviewWindow>,
     pdf_jobs: Vec<Receiver<Result<PathBuf, String>>>,
+    svg_jobs: Vec<(u64, Receiver<Result<ConvertReport, String>>)>,
 }
 
 impl App {
@@ -510,6 +527,7 @@ impl App {
             notice: None,
             preview: None,
             pdf_jobs: Vec::new(),
+            svg_jobs: Vec::new(),
         }
     }
 
@@ -715,6 +733,17 @@ impl App {
                         if !busy && ui.small_button("✖").on_hover_text("Remove from list").clicked() {
                             remove = Some(item.id);
                         }
+                        let can_save_svg = !matches!(item.status, Status::Converting) && item.svg != SvgExport::Saving;
+                        if ui
+                            .add_enabled(can_save_svg, egui::Button::new("Save as SVG").small())
+                            .on_hover_text(
+                                "Save an SVG with the same cleaned-up paths as the .ai file \
+                                 (an SVG file is saved as a new copy, name_fixed.svg)",
+                            )
+                            .clicked()
+                        {
+                            actions.push(UiAction::SaveSvg(item.id));
+                        }
                         if let Status::Done { outputs, .. } = &item.status
                             && ui.small_button("Open output folder").clicked()
                             && let Some(dir) = output_folder(outputs, &item.path)
@@ -723,6 +752,38 @@ impl App {
                         }
                     });
                 });
+                match &item.svg {
+                    SvgExport::None => {}
+                    SvgExport::Saving => {
+                        ui.indent(("svg", item.id), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(egui::RichText::new("Saving SVG…").small());
+                            });
+                        });
+                    }
+                    SvgExport::Saved(paths) => {
+                        ui.indent(("svg", item.id), |ui| {
+                            for p in paths {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(format!("→ {} (SVG)", p.display())).small());
+                                    if ui.small_button("Open").on_hover_text("Open the SVG in the default app").clicked() {
+                                        open_path(p);
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    SvgExport::Failed(e) => {
+                        ui.indent(("svg", item.id), |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("SVG export failed: {e}"))
+                                    .small()
+                                    .color(egui::Color32::from_rgb(200, 50, 50)),
+                            );
+                        });
+                    }
+                }
                 match &item.status {
                     Status::Done { outputs, warnings } => {
                         ui.indent(("out", item.id), |ui| {
@@ -797,6 +858,19 @@ impl App {
                 UiAction::Preview { ai, source, page } => {
                     self.preview = Some(PreviewWindow::start(ctx, gs.clone(), ai, source, page));
                 }
+                UiAction::SaveSvg(id) => {
+                    let Some(item) = self.queue.items.iter_mut().find(|i| i.id == id) else { continue };
+                    item.svg = SvgExport::Saving;
+                    let (tx, rx) = channel();
+                    let path = item.path.clone();
+                    let opts = build_options(&self.location, self.color, self.patterns, self.outline_text, &self.gs);
+                    let ctx = ctx.clone();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(convert_guarded(&path, &opts, OutputFormat::Svg));
+                        ctx.request_repaint();
+                    });
+                    self.svg_jobs.push((id, rx));
+                }
                 UiAction::OpenPdf(ai) => {
                     let (tx, rx) = channel();
                     let (gs, ctx) = (gs.clone(), ctx.clone());
@@ -809,6 +883,23 @@ impl App {
                 }
             }
         }
+    }
+
+    fn poll_svg_jobs(&mut self) {
+        let queue = &mut self.queue;
+        self.svg_jobs.retain(|(id, rx)| {
+            let state = match rx.try_recv() {
+                Ok(Ok(report)) => SvgExport::Saved(report.outputs),
+                Ok(Err(e)) => SvgExport::Failed(e),
+                Err(std::sync::mpsc::TryRecvError::Empty) => return true,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => SvgExport::Failed("internal error".into()),
+            };
+            // The item may have been removed from the list meanwhile.
+            if let Some(item) = queue.items.iter_mut().find(|i| i.id == *id) {
+                item.svg = state;
+            }
+            false
+        });
     }
 
     fn poll_pdf_jobs(&mut self) {
@@ -863,6 +954,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_worker();
         self.poll_pdf_jobs();
+        self.poll_svg_jobs();
         let mut actions = Vec::new();
         egui::Panel::top("settings_panel").show(ui, |ui| {
             ui.add_space(6.0);
@@ -917,6 +1009,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// "Save as SVG" next to an SVG input writes a new name_fixed.svg copy
+    /// and leaves the input untouched; a second save replaces that copy.
+    #[test]
+    fn save_svg_makes_a_new_copy() {
+        let d = tmp("svg");
+        let input = d.join("logo.svg");
+        let src = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/svg/clip_stroke.svg")).unwrap();
+        std::fs::write(&input, &src).unwrap();
+        let opts = build_options(&OutputLocation::SameAsSource, ColorMode::Preserve, PatternMode::Native, true, &GsStatus::NotFound);
+        for _ in 0..2 {
+            let report = convert_guarded(&input, &opts, OutputFormat::Svg).unwrap();
+            assert_eq!(report.outputs, vec![d.join("logo_fixed.svg")]);
+        }
+        assert_eq!(std::fs::read(&input).unwrap(), src);
+        let svg = std::fs::read_to_string(d.join("logo_fixed.svg")).unwrap();
+        assert!(svg.starts_with("<?xml") && svg.contains("<path d=\"M"), "{svg}");
+        assert!(convert_guarded(&d.join("missing.svg"), &opts, OutputFormat::Svg).is_err());
     }
 
     #[test]
@@ -1057,7 +1168,7 @@ mod tests {
         let svg = d.join("b.svg");
         std::fs::write(&svg, r#"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48"><rect width="48" height="48" fill="red"/></svg>"#).unwrap();
         let opts = ConvertOptions { out_dir: Some(d.clone()), ghostscript: Some(gs.clone()), ..Default::default() };
-        let report = convert_file(&svg, &opts).unwrap();
+        let report = ai8_converter::convert_file(&svg, &opts).unwrap();
         let r = render_preview(Some(&gs), &report.outputs[0], &svg, 0, 72);
         let (c, o) = (r.converted.unwrap(), r.original.unwrap());
         assert_eq!((c.width, c.height), (72, 36));
@@ -1079,7 +1190,7 @@ mod tests {
         assert!(matches!(msgs.first(), Some(WorkerMsg::Started(7))));
         assert!(matches!(msgs.last(), Some(WorkerMsg::AllDone)));
         let mut q = Queue::default();
-        q.items.push(QueueItem { id: 8, path: "missing.eps".into(), status: Status::Pending });
+        q.items.push(QueueItem { id: 8, path: "missing.eps".into(), status: Status::Pending, svg: SvgExport::None });
         for m in msgs {
             q.apply(m);
         }

@@ -8,7 +8,7 @@ plotters, engravers, RIPs and older design programs read AI8 but not newer
 formats.
 
 - **Inputs:** EPS, PS, PDF, AI (both PDF-based Illustrator 9+ files and legacy PostScript-based ones), SVG, SVGZ and DXF (AutoCAD R12–R2018, ASCII or binary)
-- **Output:** one Illustrator 8 file per page (`name.ai`, or `name_p1.ai`, `name_p2.ai`, … for multi-page input)
+- **Output:** one Illustrator 8 file per page (`name.ai`, or `name_p1.ai`, `name_p2.ai`, … for multi-page input), and optionally a cleaned-up SVG (see [Fixed SVG](#fixed-svg))
 - **What is kept:** paths, curves, compound paths, groups, clipping, fills and strokes (width, caps, joins, dashes), CMYK, RGB and grey colours, and spot colours (for example a `CutContour` cut line), plus overprint
 - **Patterns and gradients:** tiling patterns (PDF tiling patterns, SVG `<pattern>`) and linear and radial gradients (PDF axial/radial shadings, SVG `<linearGradient>`/`<radialGradient>`) are carried over; see [Patterns and gradients](#patterns-and-gradients)
 - **Text:** converted to outlines, so no fonts are needed on the receiving machine
@@ -54,7 +54,8 @@ Ghostscript run has a time limit of 120 seconds.
    - **Native Illustrator patterns:** pattern fills stay pattern swatches you can edit in Illustrator
    - **Expand to paths (for cutters):** each pattern fill is replaced by plain tile paths clipped to the filled shape
 5. Click **Convert**. Each file shows *Pending*, *Converting*, *Done* (with its output paths and any warnings) or *Failed* (with the error). For a finished file, **Open output folder** shows the result.
-6. Check the result: **Preview** next to an output file shows the converted `.ai` file, the original, or both side by side (zoomable). **Open as PDF** writes a PDF rendering of the `.ai` file to a temporary folder and opens it in the system PDF viewer. Both need Ghostscript.
+6. **Save as SVG** on a file's row saves an SVG with the same cleaned-up paths (see [Fixed SVG](#fixed-svg)). It doesn't need the file to be converted first.
+7. Check the result: **Preview** next to an output file shows the converted `.ai` file, the original, or both side by side (zoomable). **Open as PDF** writes a PDF rendering of the `.ai` file to a temporary folder and opens it in the system PDF viewer. Both need Ghostscript.
 
 ### Previewing the output
 
@@ -73,13 +74,14 @@ itself), `_ai8` is added to the output name.
 ## Command line
 
 ```
-ai8conv [--out DIR] [--color preserve|cmyk|rgb] [--patterns native|expand] [--no-outline-text] [--gs PATH] FILES...
+ai8conv [--out DIR] [--format ai|svg] [--color preserve|cmyk|rgb] [--patterns native|expand] [--no-outline-text] [--gs PATH] FILES...
 ```
 
 ```sh
 ai8conv logo.eps                         # writes logo.ai next to logo.eps
 ai8conv --out converted --color cmyk *.pdf *.svg
 ai8conv --patterns expand pattern-fill.svg  # pattern fills as plain paths for a cutter
+ai8conv --format svg drawing.svg         # writes drawing_fixed.svg (the input is not changed)
 ai8conv --gs "C:\Program Files\gs\gs10.04.0\bin\gswin64c.exe" sticker.eps
 ```
 
@@ -116,6 +118,28 @@ scripts/bundle-macos.sh --gs-dir DIR  # also bundle a self-contained Ghostscript
 
 The bundle has an ad-hoc signature only. On another Mac, the first launch may
 need right-click → **Open**, or `xattr -dr com.apple.quarantine "AI8 Converter.app"`.
+
+## Fixed SVG
+
+Both the `.ai` output and the SVG export clean up the paths for laser and
+cutter software:
+
+- Every closed shape ends exactly on its start point, with the closing edge
+  written out. Some laser programs only draw the edges that are in the file,
+  so a shape whose last edge was implied lost that edge in outline view.
+- A closed shape whose end point misses its start by less than 0.1 pt
+  (0.035 mm) is closed exactly instead of getting a tiny extra edge.
+- Zero-length segments (such as `h0` in Illustrator SVG exports) are removed.
+- Open paths keep any gap.
+
+The SVG export (**Save as SVG** in the app, `--format svg` on the command
+line) writes `name.svg`, one per page for multi-page input. For an SVG input
+it always writes a new copy, `name_fixed.svg`, and never changes the
+original. The SVG is in points at the same physical size as the original. Groups, clipping, strokes, patterns and gradients
+are kept. Colours are written as RGB: CMYK and spot colours are converted
+the way Ghostscript and Illustrator display them (100% cyan becomes
+`#00aeef`), and spot colour names are not kept. The **Patterns** setting
+applies to the SVG as well, and text becomes outlines.
 
 ## Patterns and gradients
 

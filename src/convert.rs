@@ -2,7 +2,7 @@
 
 use crate::ai8::{ColorMode, WriteOptions, write_ai8};
 use crate::ir::Document;
-use crate::{dxf, ghostscript, patterns, pdf, svg};
+use crate::{dxf, ghostscript, patterns, pdf, svg, svg_export};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
@@ -137,13 +137,51 @@ fn parse_all_pages(pdf_bytes: &[u8]) -> Result<Vec<Document>> {
 /// Output path for page `index` of `total`: `name.ai`, or `name_p2.ai` etc.
 /// If the output would overwrite the input (an .ai input), `_ai8` is appended.
 pub fn output_path(input: &Path, out_dir: Option<&Path>, index: usize, total: usize) -> PathBuf {
+    page_output_path(input, out_dir, index, total, OutputFormat::Ai8)
+}
+
+/// Output file format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// Adobe Illustrator 8 (.ai).
+    Ai8,
+    /// SVG with the same cleaned-up geometry as the AI8 output.
+    Svg,
+}
+
+impl OutputFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            OutputFormat::Ai8 => "ai",
+            OutputFormat::Svg => "svg",
+        }
+    }
+}
+
+/// Output path for page `index` of `total` in `format`: `name.ai` /
+/// `name.svg`, or `name_p2.ai` etc. An SVG made from an SVG input is always
+/// a new copy, `name_fixed.svg`. If the output would still overwrite the
+/// input, `_ai8` (AI8) or `_fixed` (SVG) is appended.
+pub fn page_output_path(input: &Path, out_dir: Option<&Path>, index: usize, total: usize, format: OutputFormat) -> PathBuf {
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
     let dir = out_dir.map(Path::to_path_buf).unwrap_or_else(|| input.parent().unwrap_or(Path::new(".")).to_path_buf());
+    let ext = format.extension();
+    let suffix = match format {
+        OutputFormat::Ai8 => "_ai8",
+        OutputFormat::Svg => "_fixed",
+    };
     let mut name = if total > 1 { format!("{stem}_p{}", index + 1) } else { stem.to_string() };
-    let mut out = dir.join(format!("{name}.ai"));
-    if same_file(&out, input) {
-        name.push_str("_ai8");
-        out = dir.join(format!("{name}.ai"));
+    let input_is_svg = input
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("svg") || e.eq_ignore_ascii_case("svgz"));
+    if format == OutputFormat::Svg && input_is_svg {
+        name.push_str(suffix);
+    }
+    let mut out = dir.join(format!("{name}.{ext}"));
+    while same_file(&out, input) {
+        name.push_str(suffix);
+        out = dir.join(format!("{name}.{ext}"));
     }
     out
 }
@@ -157,6 +195,13 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 /// Convert one input file, writing one .ai file per page.
 pub fn convert_file(input: &Path, opts: &ConvertOptions) -> Result<ConvertReport> {
+    convert_file_to(input, opts, OutputFormat::Ai8)
+}
+
+/// Convert one input file, writing one file per page in `format`. The SVG
+/// output gets the same path cleanup as the AI8 output; for an SVG input it
+/// is written as a new copy (`name_fixed.svg`), never over the input.
+pub fn convert_file_to(input: &Path, opts: &ConvertOptions, format: OutputFormat) -> Result<ConvertReport> {
     let docs = load_documents(input, opts)?;
     let total = docs.len();
     let mut report = ConvertReport { outputs: Vec::new(), warnings: Vec::new(), paths_written: 0 };
@@ -167,12 +212,17 @@ pub fn convert_file(input: &Path, opts: &ConvertOptions) -> Result<ConvertReport
         if opts.pattern_mode == PatternMode::Expand {
             patterns::expand_patterns(&mut doc);
         }
-        let out = output_path(input, opts.out_dir.as_deref(), i, total);
-        let title = out.file_name().and_then(|s| s.to_str()).unwrap_or("Untitled.ai").to_string();
-        let wopts = WriteOptions { title, creator_for: String::new(), color_mode: opts.color_mode };
-        let ai = write_ai8(&doc, &wopts);
-        // AI files are 8-bit; our writer only emits ASCII.
-        std::fs::write(&out, ai.as_bytes()).with_context(|| format!("writing {}", out.display()))?;
+        let out = page_output_path(input, opts.out_dir.as_deref(), i, total, format);
+        let data = match format {
+            OutputFormat::Ai8 => {
+                let title = out.file_name().and_then(|s| s.to_str()).unwrap_or("Untitled.ai").to_string();
+                let wopts = WriteOptions { title, creator_for: String::new(), color_mode: opts.color_mode };
+                // AI files are 8-bit; our writer only emits ASCII.
+                write_ai8(&doc, &wopts)
+            }
+            OutputFormat::Svg => svg_export::write_svg(&doc),
+        };
+        std::fs::write(&out, data.as_bytes()).with_context(|| format!("writing {}", out.display()))?;
         report.paths_written += doc.path_count();
         for w in &doc.warnings {
             let w = if total > 1 { format!("page {}: {w}", i + 1) } else { w.clone() };
@@ -221,5 +271,19 @@ mod tests {
         // Same path as input -> suffixed.
         let ai = Path::new("/tmp/dir/logo.ai");
         assert_eq!(output_path(ai, None, 0, 1), PathBuf::from("/tmp/dir/logo_ai8.ai"));
+    }
+
+    #[test]
+    fn svg_output_naming() {
+        let svg = |input: &str, out: Option<&str>, i, n| {
+            page_output_path(Path::new(input), out.map(Path::new), i, n, OutputFormat::Svg)
+        };
+        assert_eq!(svg("/tmp/dir/logo.eps", None, 0, 1), PathBuf::from("/tmp/dir/logo.svg"));
+        assert_eq!(svg("/tmp/dir/logo.pdf", None, 1, 2), PathBuf::from("/tmp/dir/logo_p2.svg"));
+        // An SVG input always gets a new copy, also in another folder.
+        assert_eq!(svg("/tmp/dir/logo.svg", None, 0, 1), PathBuf::from("/tmp/dir/logo_fixed.svg"));
+        assert_eq!(svg("/tmp/dir/logo.SVGZ", Some("/out"), 0, 1), PathBuf::from("/out/logo_fixed.svg"));
+        // An input that is itself called *_fixed.svg is not overwritten.
+        assert_eq!(svg("/tmp/dir/a_fixed.svg", None, 0, 1), PathBuf::from("/tmp/dir/a_fixed_fixed.svg"));
     }
 }

@@ -8,7 +8,7 @@
 //! `AI8_VISUAL_SAVE=1` to write them for every fixture.
 
 use ai8_converter::preview::{self, Raster};
-use ai8_converter::{ConvertOptions, PatternMode, convert_file, ghostscript};
+use ai8_converter::{ConvertOptions, OutputFormat, PatternMode, convert_file, convert_file_to, ghostscript};
 use std::path::{Path, PathBuf};
 
 /// Rendering resolution. 72 dpi puts the fixtures' pattern steps on whole
@@ -64,6 +64,13 @@ const ALLOWANCES: &[(&str, Option<PatternMode>, f64)] = &[
     // reference with the same fonts but different hinting/anti-aliasing; the
     // edge pixels differ more on Windows (0.65%) than on macOS (0.3%).
     ("text.svg", None, 1.5),
+];
+
+/// Extra allowances for the SVG export: (fixture file name, max percent).
+const SVG_EXPORT_ALLOWANCES: &[(&str, f64)] = &[
+    // SVG gradients always blend in sRGB; the CMYK gradients here blend in
+    // CMYK in the original, so the in-between shades differ slightly (1.1%).
+    ("shadings.pdf", 1.5),
 ];
 
 fn limit(name: &str, mode: PatternMode) -> f64 {
@@ -247,6 +254,56 @@ fn dxf_native_matches_expand() {
         }
         if pct > MAX_PERCENT {
             errors.push(format!("{name}: native and expanded output differ in {pct:.3}% of ink"));
+        }
+    }
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+}
+
+/// The SVG export of every EPS/SVG/PDF fixture, rendered with resvg, must
+/// look like the original.
+#[test]
+fn svg_export_matches_original() {
+    let Some(gs) = ghostscript::find() else {
+        eprintln!("SKIPPED visual tests: Ghostscript not found");
+        return;
+    };
+    let mut errors = Vec::new();
+    for (dir, ext) in [("eps", "eps"), ("svg", "svg"), ("pdf", "pdf")] {
+        for input in fixtures(dir, ext) {
+            let name = input.file_name().unwrap().to_string_lossy().into_owned();
+            let opts = ConvertOptions {
+                out_dir: Some(root().join("target/visual-out/svg-export").join(ext)),
+                ghostscript: Some(gs.clone()),
+                ..ConvertOptions::default()
+            };
+            let report = convert_file_to(&input, &opts, OutputFormat::Svg).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+            for (page, out) in report.outputs.iter().enumerate() {
+                let label = format!("{name} p{} (svg export)", page + 1);
+                let dpi = dpi(&input) * SUPERSAMPLE;
+                let render = |path: &Path, page| {
+                    preview::render_input_png(Some(&gs), path, page, dpi)
+                        .and_then(|b| preview::decode_png(&b))
+                        .map(|r| preview::downsample(&r, SUPERSAMPLE))
+                        .unwrap_or_else(|e| panic!("{label}: rendering {} failed: {e:#}", path.display()))
+                };
+                let orig = render(&input, page);
+                let conv = render(out, 0);
+                let stats = preview::compare(&orig, &conv, THRESHOLD, RADIUS);
+                let size_ok = orig.width.abs_diff(conv.width) <= 2 && orig.height.abs_diff(conv.height) <= 2;
+                let max = SVG_EXPORT_ALLOWANCES
+                    .iter()
+                    .find(|a| a.0 == name)
+                    .map_or_else(|| limit(&name, PatternMode::Native), |a| a.1);
+                let pct = stats.percent_of_ink();
+                println!("{label}: {:.3}% of ink differs, sizes {}x{} / {}x{}", pct, orig.width, orig.height, conv.width, conv.height);
+                let stem = format!("{}-{ext}-p{}-svgexport", input.file_stem().unwrap().to_string_lossy(), page + 1);
+                if !size_ok || pct > max || std::env::var_os("AI8_VISUAL_SAVE").is_some() {
+                    save(&root().join("target/visual-diff"), &stem, &orig, &conv, &stats.diff_image);
+                }
+                if !size_ok || pct > max {
+                    errors.push(format!("{label}: {pct:.3}% differs (limit {max}%), sizes {}x{} / {}x{}", orig.width, orig.height, conv.width, conv.height));
+                }
+            }
         }
     }
     assert!(errors.is_empty(), "{}", errors.join("\n"));
