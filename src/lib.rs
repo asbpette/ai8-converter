@@ -1,11 +1,13 @@
-//! Convert EPS / PS / PDF / AI / SVG vector files to Adobe Illustrator 8 (.ai).
+//! Convert EPS / PS / PDF / AI / SVG / DXF vector files to Adobe Illustrator 8 (.ai).
 
 pub mod ai8;
 pub mod convert;
+pub mod dxf;
 pub mod ghostscript;
 pub mod ir;
 pub mod patterns;
 pub mod pdf;
+pub mod preview;
 pub mod svg;
 
 pub use ai8::{ColorMode, WriteOptions, write_ai8};

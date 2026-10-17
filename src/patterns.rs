@@ -7,7 +7,10 @@
 //! * Geometry helpers (affine transforms of IR elements, lattice maths) used by
 //!   both the expander and the native pattern writer in [`crate::ai8`].
 
-use crate::ir::{Color, Document, Element, Matrix, PathItem, Pattern, PatternPaint, Point, Rect, Segment, Subpath, bounds_of};
+use crate::ir::{
+    Color, Document, Element, LineCap, LineJoin, Matrix, PathItem, Pattern, PatternPaint, Point, Rect, Segment, Stroke,
+    Subpath, painted_bounds,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -16,6 +19,12 @@ use std::sync::Arc;
 pub const MAX_TILES_PER_PATH: usize = 20_000;
 /// Most tiles generated for the whole document (nested patterns multiply).
 pub const MAX_TILES_PER_DOCUMENT: usize = 400_000;
+/// Largest stroke outline (segments) used to expand a pattern stroke; more
+/// complex strokes (e.g. very long dashed lines) get a flat colour.
+pub const MAX_OUTLINE_SEGMENTS: usize = 5_000;
+/// Most tiles generated when expanding the patterns nested inside one
+/// native pattern swatch (its art is stored once, as 64 KB strings).
+pub const MAX_NESTED_TILES_PER_SWATCH: usize = 2_000;
 /// Deepest nesting of patterns inside pattern tiles that is expanded.
 pub const MAX_PATTERN_DEPTH: u32 = 4;
 
@@ -206,7 +215,7 @@ const MAX_CELL_COPIES: i64 = 1_000;
 /// itself extends past its own bbox each copy is clipped to its bbox.
 pub fn tile_cell_art(p: &Pattern, xs: f64, ys: f64) -> Vec<Element> {
     let bb = p.bbox;
-    let Some(art) = bounds_of(&p.elements) else { return Vec::new() };
+    let Some(art) = painted_bounds(&p.elements) else { return Vec::new() };
     if close(xs, bb.width()) && close(ys, bb.height()) {
         return p.elements.clone();
     }
@@ -246,6 +255,12 @@ pub fn tile_cell_art(p: &Pattern, xs: f64, ys: f64) -> Vec<Element> {
 struct Ctx {
     warnings: Vec<String>,
     total_tiles: usize,
+    /// Expand pattern strokes inside their outline (expand mode); otherwise
+    /// they are flattened (inside native pattern tiles, whose layer strings
+    /// are limited to 64 KB and cannot hold large outlines).
+    outline_strokes: bool,
+    /// Tile budget for the whole expansion.
+    max_tiles: usize,
 }
 
 impl Ctx {
@@ -261,7 +276,7 @@ impl Ctx {
 /// the path, followed by the path's stroke as a separate path. Pattern strokes
 /// become flat colours. Gradients are left alone.
 pub fn expand_patterns(doc: &mut Document) {
-    let mut ctx = Ctx { warnings: Vec::new(), total_tiles: 0 };
+    let mut ctx = Ctx { warnings: Vec::new(), total_tiles: 0, outline_strokes: true, max_tiles: MAX_TILES_PER_DOCUMENT };
     let els = std::mem::take(&mut doc.elements);
     doc.elements = expand_list(els, 0, &mut ctx);
     for w in ctx.warnings {
@@ -269,6 +284,17 @@ pub fn expand_patterns(doc: &mut Document) {
             doc.warnings.push(w);
         }
     }
+}
+
+/// Expand the pattern fills inside pattern tile art (patterns nested in
+/// patterns) into clipped copies of their tiles, as [`expand_patterns`] does
+/// for a document; pattern strokes are flattened. Used by the native writer,
+/// which keeps the outer pattern as a swatch. Returns the art and any
+/// warnings.
+pub fn expand_nested(els: Vec<Element>) -> (Vec<Element>, Vec<String>) {
+    let mut ctx = Ctx { warnings: Vec::new(), total_tiles: 0, outline_strokes: false, max_tiles: MAX_NESTED_TILES_PER_SWATCH };
+    let out = expand_list(els, 1, &mut ctx);
+    (out, ctx.warnings)
 }
 
 fn expand_list(els: Vec<Element>, depth: u32, ctx: &mut Ctx) -> Vec<Element> {
@@ -286,32 +312,113 @@ fn expand_into(e: Element, depth: u32, ctx: &mut Ctx, out: &mut Vec<Element>) {
             out.push(Element::ClipGroup { clip, even_odd, children: expand_list(children, depth, ctx) })
         }
         Element::Path(mut p) => {
-            if let Some(s) = p.stroke.as_mut()
-                && matches!(s.color, Color::Pattern(_))
+            // A pattern stroke is expanded as a fill of the stroke's outline,
+            // painted after the path's fill.
+            let mut stroke_fill = None;
+            if let Some(s) = p.stroke.as_ref()
+                && let Color::Pattern(pp) = &s.color
             {
-                s.color = s.color.flatten();
-            }
-            let Some(Color::Pattern(pp)) = p.fill.clone() else {
-                out.push(Element::Path(p));
-                return;
-            };
-            match expand_fill(&p, &pp, depth, ctx) {
-                Some(tiles) => {
-                    if !tiles.is_empty() {
-                        out.push(Element::ClipGroup { clip: p.subpaths.clone(), even_odd: p.even_odd, children: tiles });
+                let outline = if ctx.outline_strokes { stroke_outline(&p.subpaths, s) } else { None };
+                let too_complex = outline
+                    .as_ref()
+                    .is_some_and(|o| o.iter().map(|sp| sp.segments.len()).sum::<usize>() > MAX_OUTLINE_SEGMENTS);
+                if too_complex {
+                    ctx.warn(format!(
+                        "a pattern stroke was too complex to expand (more than {MAX_OUTLINE_SEGMENTS} outline segments); a flat colour was used instead"
+                    ));
+                }
+                match outline.filter(|_| !too_complex) {
+                    Some(outline) => {
+                        let mut sp = PathItem::new(outline);
+                        sp.fill = Some(Color::Pattern(pp.clone()));
+                        sp.fill_overprint = p.stroke_overprint;
+                        stroke_fill = Some(sp);
+                        p.stroke = None;
                     }
-                    if p.stroke.is_some() {
-                        p.fill = None;
+                    None => {
+                        if let Some(s) = p.stroke.as_mut() {
+                            s.color = s.color.flatten();
+                        }
+                    }
+                }
+            }
+            match p.fill.clone() {
+                Some(Color::Pattern(pp)) => match expand_fill(&p, &pp, depth, ctx) {
+                    Some(tiles) => {
+                        if !tiles.is_empty() {
+                            out.push(Element::ClipGroup { clip: p.subpaths.clone(), even_odd: p.even_odd, children: tiles });
+                        }
+                        if p.stroke.is_some() {
+                            p.fill = None;
+                            out.push(Element::Path(p));
+                        }
+                    }
+                    None => {
+                        p.fill = Some(Color::Pattern(pp).flatten());
+                        out.push(Element::Path(p));
+                    }
+                },
+                _ => {
+                    if p.fill.is_some() || p.stroke.is_some() || stroke_fill.is_none() {
                         out.push(Element::Path(p));
                     }
                 }
-                None => {
-                    p.fill = Some(Color::Pattern(pp).flatten());
-                    out.push(Element::Path(p));
-                }
+            }
+            if let Some(sp) = stroke_fill {
+                expand_into(Element::Path(sp), depth, ctx, out);
             }
         }
     }
+}
+
+/// The outline of a stroke (dashes, caps and joins applied) as closed
+/// subpaths to be filled with the non-zero rule. `None` for hairlines or
+/// when the stroker fails.
+pub fn stroke_outline(subpaths: &[Subpath], s: &Stroke) -> Option<Vec<Subpath>> {
+    use usvg::tiny_skia_path as tsp;
+    if !(s.width.is_finite() && s.width > 0.0) {
+        return None;
+    }
+    let mut pb = tsp::PathBuilder::new();
+    let f = |v: f64| v as f32;
+    for sp in subpaths {
+        pb.move_to(f(sp.start.x), f(sp.start.y));
+        for seg in &sp.segments {
+            match seg {
+                Segment::Line(p) => pb.line_to(f(p.x), f(p.y)),
+                Segment::Curve(a, b, c) => pb.cubic_to(f(a.x), f(a.y), f(b.x), f(b.y), f(c.x), f(c.y)),
+            }
+        }
+        if sp.closed {
+            pb.close();
+        }
+    }
+    let mut path = pb.finish()?;
+    // Curve flattening tolerance: a quarter of a point is invisible at any
+    // sensible size; scale it with the stroke so thin strokes stay smooth.
+    let res = (4.0 / s.width.min(4.0)).max(1.0) as f32 * 4.0;
+    if !s.dash.is_empty() && s.dash.iter().any(|d| *d > 0.0) {
+        let dash = tsp::StrokeDash::new(s.dash.iter().map(|d| f(*d)).collect(), f(s.dash_phase))?;
+        path = path.dash(&dash, res)?;
+    }
+    let stroke = tsp::Stroke {
+        width: f(s.width),
+        miter_limit: f(s.miter_limit.max(1.0)),
+        line_cap: match s.cap {
+            LineCap::Butt => tsp::LineCap::Butt,
+            LineCap::Round => tsp::LineCap::Round,
+            LineCap::Square => tsp::LineCap::Square,
+        },
+        line_join: match s.join {
+            LineJoin::Miter => tsp::LineJoin::Miter,
+            LineJoin::Round => tsp::LineJoin::Round,
+            LineJoin::Bevel => tsp::LineJoin::Bevel,
+        },
+        dash: None,
+    };
+    let outline = path.stroke(&stroke, res)?;
+    let sps = crate::svg::convert_path_data(&outline, &Matrix::IDENTITY);
+    (!sps.is_empty()).then_some(sps)
 }
 
 /// Tiles for one pattern-filled path; `None` = fall back to a flat colour.
@@ -333,7 +440,7 @@ fn expand_fill(p: &PathItem, pp: &PatternPaint, depth: u32, ctx: &mut Ctx) -> Op
         return None;
     };
     let Some(bounds) = subpaths_bounds(&p.subpaths) else { return Some(Vec::new()) };
-    let Some(art) = bounds_of(&pat.elements) else { return Some(Vec::new()) };
+    let Some(art) = painted_bounds(&pat.elements) else { return Some(Vec::new()) };
     let Some(vis) = intersect(&art, &pat.bbox) else { return Some(Vec::new()) };
     let needs_clip = !contains(&pat.bbox, &art);
 
@@ -370,9 +477,10 @@ fn expand_fill(p: &PathItem, pp: &PatternPaint, depth: u32, ctx: &mut Ctx) -> Op
             }
         }
     }
-    if ctx.total_tiles + cells.len() > MAX_TILES_PER_DOCUMENT {
+    if ctx.total_tiles + cells.len() > ctx.max_tiles {
         ctx.warn(format!(
-            "pattern expansion exceeded {MAX_TILES_PER_DOCUMENT} tiles in the document; remaining pattern fills use flat colours"
+            "pattern expansion exceeded {} tiles; remaining pattern fills use flat colours",
+            ctx.max_tiles
         ));
         return None;
     }

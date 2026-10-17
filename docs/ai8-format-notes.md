@@ -109,7 +109,7 @@ S
 
 **Step and box size differ.** When `x_step` or `y_step` differ from the box size (PDF patterns with gaps or overlaps), the tile is the step-sized cell. Copies of the art from the neighbouring lattice positions that reach into the cell are added. If the art also extends past its own PDF box, each copy is wrapped in a `q … Q` clip group to that box (see "Uncertain" below). When the step equals the box size, the art is written as is, because Illustrator clips at the box.
 
-**Nested paints.** Patterns and gradients nested inside tile art are flattened to solid colours (`Color::flatten`), with no warning.
+**Nested paints.** Patterns nested inside tile art are expanded inside the tile (`patterns::expand_nested`): the inner pattern-filled path becomes a `q … Q` clip group holding copies of the inner tile, exactly as in expand mode, so the outer pattern stays a swatch and looks right. Gradients nested inside tile art are flattened to solid colours (`Color::flatten`), with no warning.
 
 **Colour mode.** The writer applies `ColorMode` (Cmyk or Rgb) inside tiles as everywhere else.
 
@@ -270,7 +270,8 @@ The 8640 pt canvas centred on the artboard matches the palette instances in [AI8
 Some details:
 
 - **Tile clipping.** If the tile art extends past the tile's box, each copy is clipped to it.
-- **Pattern strokes** are flattened.
+- **Pattern strokes** are expanded inside the stroke's outline: `stroke_outline` builds it with tiny-skia's stroker (dashes, caps, joins and miter limit applied), and the outline is then filled like a pattern-filled path (non-zero rule), after the path's own fill. Outlines with more than 5,000 segments fall back to the flat colour, with a warning.
+- **Visible tile art** is measured with `painted_bounds`, which includes stroke widths, so a tile whose art is a single stroked straight line (a DXF ANSI31 hatch) is not mistaken for empty.
 - **Nested patterns** are expanded recursively, up to 4 levels deep.
 - **Caps.** The limit is 20,000 tiles per path and 400,000 per document. Beyond that, the fill falls back to the flat colour and a warning is added to `doc.warnings`.
 - **Gradients** stay native. `flatten_gradients(doc)` is available separately.
@@ -289,8 +290,22 @@ Some details:
 **Uncertain** (no Illustrator available to test, and no real file found showing it):
 
 1. **Colour operators inside a pattern layer's art.** We write them so that tiles can have several colours. [SPEC] says the art in `&` "is identical to the representation of objects in the document script". The [AI8] example has only one colour, which the `@` string sets.
-2. **`q … Q` clip groups inside tiles.** These are only written when the step differs from the box size **and** the art overflows its box. Older Illustrator versions refused masks in pattern swatches in the UI.
+2. **`q … Q` clip groups inside tiles.** These are written when the step differs from the box size **and** the art overflows its box, and when a pattern nested in the tile is expanded. Older Illustrator versions refused masks in pattern swatches in the UI.
 3. **The `Bg` matrix convention.** It matters only for non-uniformly scaled or skewed radial gradients, because every other case uses the identity matrix. We follow the [SPEC] formula literally. [VC] instead applies the `Bg` matrix as a plain art-space matrix, but it prefers `Bm` when present, which we also write.
 4. **Fractional rampPoints** (for example `37.5`). [SPEC] examples and [AI8] only show integers. [XARA]'s reader pops integers.
 5. **One `Bb…BB` per subpath of a compound path.** This is inferred from the BNF.
 6. **Omitting `%_Br`.** [SPEC] allows it, but every real file we found includes it.
+
+## The preview procset (`assets/ai8-procset.ps`)
+
+The app previews its output, and the visual tests (`tests/visual.rs`) check it, by running the AI8 file through Ghostscript with our own prolog. The prolog implements [SPEC], not our writer's habits. These are the readings it takes:
+
+- **Paint state** (`g k x Xa p`, `XR`, overprint) is document state that lasts until it changes (§5: "Fill and stroke attributes are state-based"). `q`/`Q` save and restore only the clip; the line style lives in the graphics state and is carried across `Q`.
+- **Compound paths** are one PostScript path (§5.3.5). The painting operators inside `*u … *U` only record how the path is painted, the last one wins, and the whole path is painted once at `*U`. Masks made of compound paths become the union of their subpaths, clipped with the fill rule.
+- **Masks.** `h`/`H` + `W` intersect the clip with the path when the path is ended (§5.6.2); `Q` restores it.
+- **Gradient stops** are the operands that the `… %_BS` (AI8) or `… %_Bs` (AI5–7) lines leave on the stack. To PostScript the rest of those lines, and the whole `%_… Bs` lines, are comments. `BD` collects everything down to the `[` mark, parses the stops from the end (the colorStyle fixes the number of colorSpec operands), and drops any `%_Br` ramp data below. Stops are put in ramp order. A list written last stop first (linear ramps) is reversed before a stable sort, so coincident stops keep their order. A midPoint other than 50 adds a node with the average colour. Custom colours are imaged as their CMYK values times the tint, and a ramp is imaged in DeviceCMYK if any stop is CMYK or custom, DeviceRGB if any is RGB, else DeviceGray.
+- **Gradient instances.** Between `Bb` and `BB`, `f`/`F` fills with the gradient and keeps the path; `BB` strokes it (flag 1, or 2 after closing) and ends it. Linear ramps run from the origin at `angle` over `length`, and radial ramps from the hilight (angle and fraction of the radius, as Illustrator does; the x/y offsets are ignored) to the circle; both pad. The `Bg` matrix is applied with the §3.5.4 formula about the canvas corner (W/2 − 4320, H/2 + 4320), with W×H from `%AI5_ArtSize`. `Bm`, `Bc` and `Xm` are imaging hints and are ignored. A `Bg` flag of 2 disables the fill.
+- **Patterns.** `E` stores the layer strings. `p`/`P` build a Level 2 coloured tiling pattern: BBox = the tile box and steps = its size. The pattern matrix is `translate(−llx, −lly)` (tile corner to the origin), then the `[a b c d tx ty]` matrix ("the initial matrix to which all other pattern transformations are applied"), then the named transforms (scale, rotation, reflection, shear, offset). The PaintProc runs each layer's colour string and art string with a fresh paint state.
+- Unknown operators are skipped in the app's preview; the tests run in strict mode, where they are errors and leftover operands fail the test.
+
+Visual test results are compared against Ghostscript's rendering of the original (EPS, PDF) or resvg's (SVG). Both are rendered at 3× and box-filtered down, because Ghostscript does not anti-alias clip paths or pattern fills. SVG fixtures are rendered at 96 dpi with tile sizes that are whole pixels, because resvg rasterises pattern tiles at a rounded pixel size.

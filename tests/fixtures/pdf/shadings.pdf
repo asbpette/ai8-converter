@@ -1,0 +1,56 @@
+%PDF-1.5
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Rotate 90 /Contents 4 0 R /Resources << /Shading << /Sh1 5 0 R >> /Pattern << /SP1 6 0 R /SP2 7 0 R /SP3 8 0 R /SP4 9 0 R >> >> >>
+endobj
+4 0 obj
+<<  /Length 270 >>
+stream
+
+q 10 10 130 60 re W n /Sh1 sh Q
+q /Pattern cs /SP1 scn 160 10 130 60 re f Q
+q 75 140 50 0 360 re W n Q
+q /Pattern cs /SP2 scn 20 80 120 110 re f Q
+q /Pattern cs /SP3 scn 160 80 120 50 re f Q
+q /Pattern cs /SP4 scn 160 140 130 50 re f 0 0 0 RG 2 w 160 140 130 50 re S Q
+
+endstream
+endobj
+5 0 obj
+<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10 0 140 0] /Extend [true true] /Function << /FunctionType 3 /Domain [0 1] /Bounds [0.3 0.7] /Encode [0 1 0 1 0 1] /Functions [ << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [1 1 0] /N 1 >> << /FunctionType 2 /Domain [0 1] /C0 [1 1 0] /C1 [0 0.8 0] /N 1 >> << /FunctionType 2 /Domain [0 1] /C0 [0 0.8 0] /C1 [0 0 1] /N 1 >> ] >> >>
+endobj
+6 0 obj
+<< /Type /Pattern /PatternType 2 /Matrix [0.7 0.7 -0.7 0.7 225 40] /Shading << /ShadingType 2 /ColorSpace /DeviceCMYK /Coords [-30 0 30 0] /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 0.2 0 0] /N 1 >> >> >>
+endobj
+7 0 obj
+<< /Type /Pattern /PatternType 2 /Shading << /ShadingType 3 /ColorSpace /DeviceRGB /Coords [60 150 0 80 135 50] /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 1 0.8] /C1 [0.6 0 0.2] /N 1 >> >> >>
+endobj
+8 0 obj
+<< /Type /Pattern /PatternType 2 /Matrix [2 0 0 1 220 105] /Shading << /ShadingType 3 /ColorSpace /DeviceGray /Coords [0 0 0 0 0 25] /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >> >>
+endobj
+9 0 obj
+<< /Type /Pattern /PatternType 2 /Shading << /ShadingType 2 /ColorSpace [/Separation /Gold /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0.25 0.95 0.05] /N 1 >>] /Coords [160 0 290 0] /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [0.1] /C1 [1] /N 1 >> >> >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000321 00000 n 
+0000000643 00000 n 
+0000001043 00000 n 
+0000001304 00000 n 
+0000001538 00000 n 
+0000001779 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+2093
+%%EOF

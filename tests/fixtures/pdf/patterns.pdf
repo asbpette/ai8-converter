@@ -1,0 +1,66 @@
+%PDF-1.5
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /CropBox [5 5 295 198] /Contents 4 0 R /Resources << /Pattern << /P1 5 0 R /P2 6 0 R /P3 7 0 R >> /ColorSpace << /CsU [/Pattern /DeviceRGB] >> /XObject << /Fm1 8 0 R >> >> >>
+endobj
+4 0 obj
+<<  /Length 395 >>
+stream
+
+q 0.95 0.95 0.9 rg 10 10 280 180 re f Q
+q /Pattern cs /P1 scn 20 20 120 80 re f Q
+q /CsU cs 0.1 0.4 0.9 /P2 scn 160 20 120 80 re f
+  0.9 0.1 0.3 /P2 scn 160 110 50 70 re f Q
+q /Pattern cs /P3 scn 20 110 120 70 re f Q
+q 220 110 60 70 re 235 125 30 40 re W* n /Pattern cs /P1 scn 210 100 80 90 re f Q
+q 0 0 0 RG 1.5 w /Pattern CS /P3 SCN 5 w 20 190 m 140 190 l S Q
+q 1 0 0 1 150 130 cm /Fm1 Do Q
+
+endstream
+endobj
+5 0 obj
+<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 8 8] /XStep 12 /YStep 10 /Matrix [0.866 0.5 -0.5 0.866 20 10] /Resources << >> /Length 51 >>
+stream
+0.9 0.5 0 rg 0 0 8 8 re f 0 0.3 0.6 rg 2 2 4 4 re f
+endstream
+endobj
+6 0 obj
+<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >> /Length 30 >>
+stream
+0 0 m 10 10 l 10 5 l 5 0 l h f
+endstream
+endobj
+7 0 obj
+<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [-3 -3 13 13] /XStep 10 /YStep 10 /Matrix [1.5 0 0 1.5 0 0] /Resources << >> /Length 69 >>
+stream
+0 0.6 0.3 rg 5 5 m 11 5 l 5 11 l -1 5 l h f 0.5 0 0.5 rg 4 4 2 2 re f
+endstream
+endobj
+8 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 60 60] /Matrix [0.8 0.2 -0.2 0.8 0 0] /Resources << /Pattern << /P1 5 0 R >> >> /Length 44 >>
+stream
+/Pattern cs /P1 scn 0 0 m 50 0 l 25 45 l h f
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000364 00000 n 
+0000000811 00000 n 
+0000001059 00000 n 
+0000001251 00000 n 
+0000001510 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1725
+%%EOF

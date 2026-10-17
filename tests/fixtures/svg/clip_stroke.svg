@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200">
+  <defs>
+    <clipPath id="c1"><circle cx="70" cy="70" r="55"/></clipPath>
+    <clipPath id="c2"><rect x="170" y="20" width="40" height="120"/><rect x="230" y="20" width="40" height="120"/></clipPath>
+    <clipPath id="c3" clipPathUnits="objectBoundingBox"><polygon points="0,0 1,0 0.5,1"/></clipPath>
+    <pattern id="chk" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#333"/><rect x="8" y="8" width="8" height="8" fill="#333"/>
+    </pattern>
+  </defs>
+  <g clip-path="url(#c1)">
+    <rect x="0" y="0" width="140" height="70" fill="#09c"/>
+    <rect x="0" y="70" width="140" height="70" fill="url(#chk)"/>
+  </g>
+  <g clip-path="url(#c2)">
+    <rect x="160" y="10" width="120" height="140" fill="url(#chk)"/>
+    <line x1="160" y1="140" x2="280" y2="10" stroke="#e00" stroke-width="6"/>
+  </g>
+  <rect x="20" y="150" width="70" height="40" fill="#fc0" clip-path="url(#c3)"/>
+  <path d="M110 150 h60 v40 h-60 Z M120 160 h40 v20 h-40 Z" fill="#a0a" fill-rule="evenodd"/>
+  <polyline points="190,190 210,155 230,190 250,155" fill="none" stroke="#000" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M260 150 l30 40" stroke="#06f" stroke-width="4" stroke-dasharray="6 3" stroke-linecap="butt"/>
+  <rect x="150" y="160" width="30" height="30" fill="none" stroke="#090" stroke-width="3" stroke-linejoin="bevel"/>
+</svg>

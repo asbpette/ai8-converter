@@ -574,12 +574,17 @@ fn expand_mode_writes_plain_tiles() {
     let stats = common::validate_ai8(&ai);
     assert!(stats.pattern_defs.is_empty());
     assert_eq!(stats.pattern_uses, 0);
-    assert_eq!(stats.clip_groups, 1);
-    // 100 tiles + the stroke path.
-    assert_eq!(stats.paths, 101);
+    // The fill, and the pattern stroke expanded inside its outline.
+    assert_eq!(stats.clip_groups, 2);
+    // 100 fill tiles + the tiles covering the stroke outline's bounds
+    // (-0.5..95.5: an 11 × 11 lattice); no flat-coloured stroke is left.
+    assert_eq!(stats.paths, 100 + 121);
+    assert!(!ai.lines().any(|l| l == "s" || l == "S"), "pattern stroke written as a flat stroke");
     assert!(ai.contains("%%DocumentCustomColors: (Cut)"));
     // Tile placement: lower-left corners on the 10 pt lattice.
+    // Fill tiles (the first clip group).
     let a = art(&ai);
+    let a = &a[..a.find("\nQ\n").unwrap()];
     for (i, j) in [(0, 0), (9, 0), (0, 9), (9, 9), (4, 7)] {
         assert!(a.contains(&format!("{} {} m\n", i * 10, j * 10)), "tile ({i},{j}) missing");
     }

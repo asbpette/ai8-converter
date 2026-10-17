@@ -5,7 +5,7 @@ vector files to the **Adobe Illustrator 8** `.ai` format. Many vinyl cutters,
 plotters, engravers, RIPs and older design programs read AI8 but not newer
 formats.
 
-- **Inputs:** EPS, PS, PDF, AI (both PDF-based Illustrator 9+ files and legacy PostScript-based ones), SVG and SVGZ
+- **Inputs:** EPS, PS, PDF, AI (both PDF-based Illustrator 9+ files and legacy PostScript-based ones), SVG, SVGZ and DXF (AutoCAD R12–R2018, ASCII or binary)
 - **Output:** one Illustrator 8 file per page (`name.ai`, or `name_p1.ai`, `name_p2.ai`, … for multi-page input)
 - **What is kept:** paths, curves, compound paths, groups, clipping, fills and strokes (width, caps, joins, dashes), CMYK, RGB and grey colours, and spot colours (for example a `CutContour` cut line), plus overprint
 - **Patterns and gradients:** tiling patterns (PDF tiling patterns, SVG `<pattern>`) and linear and radial gradients (PDF axial/radial shadings, SVG `<linearGradient>`/`<radialGradient>`) are carried over; see [Patterns and gradients](#patterns-and-gradients)
@@ -52,6 +52,18 @@ Ghostscript run has a time limit of 120 seconds.
    - **Native Illustrator patterns:** pattern fills stay pattern swatches you can edit in Illustrator
    - **Expand to paths (for cutters):** each pattern fill is replaced by plain tile paths clipped to the filled shape
 5. Click **Convert**. Each file shows *Pending*, *Converting*, *Done* (with its output paths and any warnings) or *Failed* (with the error). For a finished file, **Open output folder** shows the result.
+6. Check the result: **Preview** next to an output file shows the converted `.ai` file, the original, or both side by side (zoomable). **Open as PDF** writes a PDF rendering of the `.ai` file to a temporary folder and opens it in the system PDF viewer. Both need Ghostscript.
+
+### Previewing the output
+
+AI8 files are PostScript programs that rely on Illustrator's own procedure
+sets, which (like Illustrator's "include: none" saves) are not stored in the
+file. That is why macOS Preview, and Ghostscript on its own, cannot open
+them. The app ships its own implementation of the AI8 operators
+(`assets/ai8-procset.ps`, written from the Illustrator 7 file format
+specification) and runs it with Ghostscript to draw the preview and the PDF.
+The PDF is only for looking at: send the `.ai` file itself to the cutter or
+to Illustrator.
 
 If an output file would overwrite its input (an `.ai` input written next to
 itself), `_ai8` is added to the output name.
@@ -82,6 +94,7 @@ You need a recent stable Rust toolchain (edition 2024, Rust 1.85 or later) from
 cargo build --release            # GUI: target/release/ai8-converter(.exe)
                                  # CLI: target/release/ai8conv(.exe)
 cargo test                       # Ghostscript tests are skipped if gs isn't installed
+AI8_VISUAL_SAVE=1 cargo test --test visual   # also keep every rendering in target/visual-diff/
 cargo run                        # start the GUI
 cargo run --bin ai8conv -- --help
 ```
@@ -109,10 +122,13 @@ Pattern fills and strokes are written in one of two ways, chosen with the
 
 - `native` (default): each pattern becomes an Illustrator pattern swatch and
   the shapes are filled or stroked with it, so the result stays editable in
-  Illustrator. Patterns used inside other patterns are kept too.
+  Illustrator. A pattern used inside another pattern is expanded into plain
+  tile paths inside the outer swatch, and gradients inside a pattern tile
+  become flat colours.
 - `expand`: each pattern fill is replaced by copies of the tile artwork,
-  clipped to the shape. Use this for cutters, plotters and RIPs that don't
-  understand pattern fills.
+  clipped to the shape. A pattern stroke is expanded the same way inside the
+  stroke's outline (dashes, caps and joins included). Use this for cutters,
+  plotters and RIPs that don't understand pattern fills.
 
 Linear and radial gradients are written as Illustrator gradients with their
 colour stops and geometry (start and end point, centre, radius and focal
@@ -134,5 +150,7 @@ and the zipped macOS `.app` as artifacts.
 - SVG gradient `spreadMethod="reflect"`/`"repeat"` is written as `pad`, and a radial gradient's focal radius (`fr`) is ignored; both show a warning. Shading types other than linear and radial are approximated by a flat colour.
 - Text always becomes outlines; no editable text is written. A PDF with live text that is converted without Ghostscript (or with outlining off) loses that text, and a warning is shown.
 - SVG filters, masks and embedded bitmaps are not supported. CSS and `<use>` are supported. SVG `<text>` is outlined with the fonts installed on the computer, so a missing font falls back to a substitute.
-- The output is a plain AI8 file: one layer, and no embedded preview or procsets. Illustrator and AI-importing applications read it directly, but sending it straight to a PostScript printer won't work.
+- The output is a plain AI8 file: one layer, and no embedded preview or procsets. Illustrator and AI-importing applications read it directly, but sending it straight to a PostScript printer won't work, and macOS Preview can't open it (use **Preview** or **Open as PDF** in the app).
+- DXF: text (TEXT, MTEXT, attribute and dimension text, SHX fonts) is not converted; 3D entities are projected flat (top view); hatch patterns become native pattern swatches when their line families repeat on a common lattice (ANSI31, crosshatches, bricks, …), otherwise clipped dashed lines; hatch gradients become linear or radial gradients. Drawings without units are taken as millimetres.
+- In expand mode, a pattern stroke whose outline would have more than 5,000 segments (for example a very long dashed line), and patterns nested more than 4 deep, get a flat colour; a warning is shown.
 - Ghostscript is not bundled by default. Mind its AGPL licence if you redistribute it with the app.

@@ -135,7 +135,7 @@ fn parse_svg_inner(data: &[u8]) -> Result<Document> {
 
 /// System fonts, loaded once per process (scanning the font directories takes
 /// a noticeable amount of time). Works on macOS, Windows and Linux via fontdb.
-fn system_fonts() -> Arc<usvg::fontdb::Database> {
+pub(crate) fn system_fonts() -> Arc<usvg::fontdb::Database> {
     static DB: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
     DB.get_or_init(|| {
         let mut db = usvg::fontdb::Database::new();
@@ -590,7 +590,7 @@ fn collect_clip_geometry(g: &usvg::Group, ts: &Matrix, clip: &mut Vec<Subpath>, 
 
 /// Convert tiny-skia path data to IR subpaths, transforming every point by `ts`.
 /// Quadratic segments are elevated to the exactly equivalent cubic.
-fn convert_path_data(path: &usvg::tiny_skia_path::Path, ts: &Matrix) -> Vec<Subpath> {
+pub(crate) fn convert_path_data(path: &usvg::tiny_skia_path::Path, ts: &Matrix) -> Vec<Subpath> {
     let tp = |p: usvg::tiny_skia_path::Point| ts.apply(Point::new(p.x as f64, p.y as f64));
     let mut subpaths: Vec<Subpath> = Vec::new();
     let mut current: Option<Subpath> = None;

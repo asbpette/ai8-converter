@@ -10,8 +10,9 @@
 //!
 //! Patterns and gradients are written natively:
 //! * every distinct [`Pattern`] becomes one `%AI3_BeginPattern` definition in
-//!   the setup section (tile art normalised so the tile starts at 0,0; nested
-//!   patterns/gradients inside tile art are flattened to solid colours), used
+//!   the setup section (tile art normalised so the tile starts at 0,0;
+//!   patterns nested inside tile art are expanded into clipped tile copies,
+//!   gradients inside tile art are flattened to solid colours), used
 //!   with `(name) 0 0 1 1 0 0 0 0 0 [matrix] p` / `P`;
 //! * every distinct gradient becomes one `%AI5_BeginGradient` definition
 //!   (`Bd`, `%_BS`/`Bs` stops, `BD`) after an `n Bn` count, and gradient fills
@@ -129,7 +130,7 @@ const CANVAS_HALF: f64 = 4320.0;
 const MAX_TILE_LAYER_BYTES: usize = 60_000;
 
 /// Tracks the last emitted paint state so redundant operators are skipped.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct State {
     fill: Option<String>,
     stroke: Option<String>,
@@ -207,7 +208,7 @@ struct Writer {
     page_w: f64,
     page_h: f64,
     state: State,
-    /// Writing pattern tile art: nested patterns/gradients are flattened and
+    /// Writing pattern tile art: nested gradients are flattened and
     /// strings must not contain bare parentheses.
     in_tile: bool,
     res: Resources,
@@ -483,7 +484,9 @@ impl Writer {
 
     fn pattern_def(&mut self, pat: &Pattern, name: &str) -> String {
         let (xs, ys) = patterns::tile_steps(pat).unwrap_or((1.0, 1.0));
-        let art = patterns::tile_cell_art(pat, xs, ys);
+        // Patterns nested in the tile become plain (clipped) tile copies;
+        // gradients in tiles are flattened when the art is written.
+        let (art, _) = patterns::expand_nested(patterns::tile_cell_art(pat, xs, ys));
 
         // Write the tile art in tile space (lower-left of the tile at 0,0).
         let saved = (std::mem::take(&mut self.out), self.dx, self.dy, std::mem::take(&mut self.state), self.in_tile);
@@ -492,9 +495,23 @@ impl Writer {
         self.in_tile = true;
         let mut layers: Vec<String> = Vec::new();
         let mut current = String::new();
-        for e in &art {
+        // Work list (reversed): an element whose art alone exceeds a layer is
+        // split, a (clip) group into several with the same clip and halves of
+        // the children, which paints the same.
+        let mut work: Vec<Element> = art.into_iter().rev().collect();
+        while let Some(e) = work.pop() {
+            let e = &e;
             self.out.clear();
+            let saved_state = self.state.clone();
             self.element(e);
+            if self.out.len() > MAX_TILE_LAYER_BYTES
+                && let Some((a, b)) = split_element(e)
+            {
+                self.state = saved_state;
+                work.push(b);
+                work.push(a);
+                continue;
+            }
             if !current.is_empty() && current.len() + self.out.len() > MAX_TILE_LAYER_BYTES {
                 layers.push(std::mem::take(&mut current));
                 // A new layer starts with a fresh paint state.
@@ -916,6 +933,29 @@ impl Writer {
                 self.state = State::default();
             }
         }
+    }
+}
+
+/// Split a group or clip group into two with halves of its children (the
+/// clip repeated), for pattern layers that would exceed the string limit.
+fn split_element(e: &Element) -> Option<(Element, Element)> {
+    match e {
+        Element::Group(c) if c.len() > 1 => {
+            let (a, b) = c.split_at(c.len() / 2);
+            Some((Element::Group(a.to_vec()), Element::Group(b.to_vec())))
+        }
+        Element::ClipGroup { clip, even_odd, children } => {
+            let mk = |c: Vec<Element>| Element::ClipGroup { clip: clip.clone(), even_odd: *even_odd, children: c };
+            if children.len() > 1 {
+                let (a, b) = children.split_at(children.len() / 2);
+                Some((mk(a.to_vec()), mk(b.to_vec())))
+            } else {
+                let (a, b) = split_element(children.first()?)?;
+                Some((mk(vec![a]), mk(vec![b])))
+            }
+        }
+        Element::Group(c) if c.len() == 1 => split_element(&c[0]),
+        _ => None,
     }
 }
 

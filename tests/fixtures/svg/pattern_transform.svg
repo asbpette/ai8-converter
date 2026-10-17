@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="300" height="200">
+  <defs>
+    <!-- rotated and scaled user-space pattern -->
+    <pattern id="rot" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="translate(3 5) rotate(30) scale(1.5)">
+      <rect width="5" height="10" fill="#f39200"/>
+      <rect y="7" width="10" height="2" fill="#312783"/>
+    </pattern>
+    <!-- objectBoundingBox tile with a viewBox -->
+    <pattern id="bbox" width="0.25" height="0.2" viewBox="0 0 10 10">
+      <path d="M0 0 L10 10 M10 0 L0 10" stroke="#c00" stroke-width="2"/>
+    </pattern>
+    <!-- objectBoundingBox content units -->
+    <pattern id="content" width="1" height="1" patternContentUnits="objectBoundingBox" patternUnits="userSpaceOnUse" x="0" y="0">
+      <rect width="0.5" height="0.5" fill="#2a2"/>
+    </pattern>
+    <pattern id="sized" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="skewX(20)">
+      <circle cx="8" cy="8" r="5" fill="#808"/>
+    </pattern>
+    <!-- inherits the content of #sized but not its skew (own patternTransform) -->
+    <pattern id="href" xlink:href="#sized" patternTransform="scale(0.75)"/>
+    <!-- a pattern that uses another pattern -->
+    <pattern id="outer" width="40" height="40" patternUnits="userSpaceOnUse">
+      <rect width="20" height="20" fill="url(#stripes)"/>
+      <rect x="20" y="20" width="20" height="20" fill="#06c"/>
+    </pattern>
+    <pattern id="stripes" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="2" height="4" fill="#000"/>
+    </pattern>
+  </defs>
+  <rect x="10" y="10" width="130" height="90" fill="url(#rot)"/>
+  <ellipse cx="220" cy="55" rx="70" ry="45" fill="url(#bbox)"/>
+  <rect x="10" y="110" width="80" height="80" fill="url(#sized)"/>
+  <rect x="100" y="110" width="80" height="80" fill="url(#href)"/>
+  <rect x="200" y="120" width="80" height="80" fill="url(#outer)"/>
+</svg>

@@ -1,15 +1,18 @@
 //! AI8 Converter desktop GUI.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-use ai8_converter::{ColorMode, ConvertOptions, ConvertReport, PatternMode, convert_file, ghostscript};
+use ai8_converter::{ColorMode, ConvertOptions, ConvertReport, PatternMode, convert_file, ghostscript, preview};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 /// File extensions accepted by the converter (lower case).
-const SUPPORTED_EXTENSIONS: &[&str] = &["eps", "epsf", "epsi", "ps", "pdf", "ai", "svg", "svgz"];
+const SUPPORTED_EXTENSIONS: &[&str] = &["eps", "epsf", "epsi", "ps", "pdf", "ai", "svg", "svgz", "dxf"];
 /// Extensions offered in the "Add files…" dialog filter.
-const DIALOG_EXTENSIONS: &[&str] = &["eps", "ps", "pdf", "ai", "svg", "svgz"];
+const DIALOG_EXTENSIONS: &[&str] = &["eps", "ps", "pdf", "ai", "svg", "svgz", "dxf"];
+/// Resolution of the preview images (2 pixels per point: sharp on high-DPI
+/// screens, and zoomable).
+const PREVIEW_DPI: u32 = 144;
 
 // ---------------------------------------------------------------------------
 // Testable state model
@@ -226,7 +229,8 @@ fn output_folder(outputs: &[PathBuf], source: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-fn open_folder(dir: &Path) {
+/// Open a file or folder with the system's default application.
+fn open_path(dir: &Path) {
     #[cfg(target_os = "macos")]
     let cmd = "open";
     #[cfg(windows)]
@@ -263,7 +267,222 @@ fn spawn_worker(jobs: Vec<(u64, PathBuf)>, opts: ConvertOptions, tx: Sender<Work
 }
 
 // ---------------------------------------------------------------------------
+// Preview (testable part)
+
+/// What the preview window shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewView {
+    Converted,
+    Original,
+    SideBySide,
+}
+
+/// Rendered images for one preview: the AI8 output and the source page.
+#[derive(Debug)]
+struct PreviewImages {
+    converted: Result<preview::Raster, String>,
+    original: Result<preview::Raster, String>,
+}
+
+/// Render an output file (through our AI8 procset) and the matching page of
+/// its source file. Runs on a worker thread.
+fn render_preview(gs: Option<&Path>, ai: &Path, source: &Path, page: usize, dpi: u32) -> PreviewImages {
+    let err = |e: anyhow::Error| format!("{e:#}");
+    let converted = match gs {
+        Some(gs) => preview::render_ai8_png(gs, ai, dpi).and_then(|b| preview::decode_png(&b)).map_err(err),
+        None => Err("The preview needs Ghostscript (see the Ghostscript line above).".to_string()),
+    };
+    let original = preview::render_input_png(gs, source, page, dpi).and_then(|b| preview::decode_png(&b)).map_err(err);
+    PreviewImages { converted, original }
+}
+
+/// Where "Open as PDF" writes the PDF rendering of `ai`:
+/// `<temp>/ai8-converter-preview/<name>-preview.pdf`.
+fn preview_pdf_path(temp_root: &Path, ai: &Path) -> PathBuf {
+    let stem = ai.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "output".into());
+    temp_root.join("ai8-converter-preview").join(format!("{stem}-preview.pdf"))
+}
+
+/// Write the PDF rendering of `ai` (for viewers such as macOS Preview, which
+/// cannot open PostScript-based .ai files) and return its path.
+fn write_preview_pdf(gs: Option<&Path>, ai: &Path, temp_root: &Path) -> Result<PathBuf, String> {
+    let gs = gs.ok_or_else(|| "Opening as PDF needs Ghostscript.".to_string())?;
+    let pdf = preview_pdf_path(temp_root, ai);
+    if let Some(dir) = pdf.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
+    }
+    preview::ai8_to_pdf(gs, ai, &pdf).map_err(|e| format!("{e:#}"))?;
+    Ok(pdf)
+}
+
+/// Scale that fits an image of `img` points into `avail` (never above 1).
+fn fit_scale(img: egui::Vec2, avail: egui::Vec2) -> f32 {
+    if img.x <= 0.0 || img.y <= 0.0 {
+        return 1.0;
+    }
+    (avail.x / img.x).min(avail.y / img.y).clamp(0.05, 1.0)
+}
+
+// ---------------------------------------------------------------------------
 // GUI
+
+/// The preview window of one output file.
+struct PreviewWindow {
+    title: String,
+    ai: PathBuf,
+    open: bool,
+    view: PreviewView,
+    /// None = fit to the window.
+    zoom: Option<f32>,
+    rx: Option<Receiver<PreviewImages>>,
+    images: Option<PreviewImages>,
+    textures: [Option<egui::TextureHandle>; 2],
+}
+
+impl PreviewWindow {
+    fn start(ctx: &egui::Context, gs: Option<PathBuf>, ai: PathBuf, source: PathBuf, page: usize) -> Self {
+        let (tx, rx) = channel();
+        let ctx2 = ctx.clone();
+        let (ai2, source2) = (ai.clone(), source.clone());
+        std::thread::spawn(move || {
+            let images = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                render_preview(gs.as_deref(), &ai2, &source2, page, PREVIEW_DPI)
+            }))
+            .unwrap_or_else(|_| PreviewImages {
+                converted: Err("internal error while rendering".into()),
+                original: Err("internal error while rendering".into()),
+            });
+            let _ = tx.send(images);
+            ctx2.request_repaint();
+        });
+        let name = ai.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        Self {
+            title: format!("Preview: {name}"),
+            ai,
+            open: true,
+            view: PreviewView::Converted,
+            zoom: None,
+            rx: Some(rx),
+            images: None,
+            textures: [None, None],
+        }
+    }
+
+    fn poll(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.rx else { return };
+        if let Ok(images) = rx.try_recv() {
+            let tex = |r: &Result<preview::Raster, String>, name: &str| {
+                r.as_ref().ok().map(|r| {
+                    let img = egui::ColorImage::from_rgba_unmultiplied([r.width as usize, r.height as usize], &r.rgba);
+                    ctx.load_texture(name, img, egui::TextureOptions::LINEAR)
+                })
+            };
+            self.textures = [tex(&images.converted, "preview-converted"), tex(&images.original, "preview-original")];
+            self.images = Some(images);
+            self.rx = None;
+        }
+    }
+
+    /// One image with its caption; `scale` maps image pixels to points.
+    fn image_ui(ui: &mut egui::Ui, caption: &str, tex: &Option<egui::TextureHandle>, err: Option<&String>, scale: f32) {
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new(caption).strong());
+            match (tex, err) {
+                (Some(t), _) => {
+                    let size = t.size_vec2() * scale;
+                    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 0.0, egui::Color32::WHITE);
+                    ui.painter().image(
+                        t.id(),
+                        rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
+                (None, Some(e)) => {
+                    ui.label(egui::RichText::new(e).color(egui::Color32::from_rgb(200, 50, 50)));
+                }
+                (None, None) => {}
+            }
+        });
+    }
+
+    fn ui(&mut self, ctx: &egui::Context, actions: &mut Vec<UiAction>) {
+        self.poll(ctx);
+        let mut open = self.open;
+        egui::Window::new(self.title.clone())
+            .id(egui::Id::unique("preview_window"))
+            .open(&mut open)
+            .default_size([640.0, 520.0])
+            .resizable(true)
+            .vscroll(false)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.view, PreviewView::Converted, "Converted (.ai)");
+                    ui.selectable_value(&mut self.view, PreviewView::Original, "Original");
+                    ui.selectable_value(&mut self.view, PreviewView::SideBySide, "Side by side");
+                    ui.separator();
+                    if ui.selectable_label(self.zoom.is_none(), "Fit").clicked() {
+                        self.zoom = None;
+                    }
+                    for (label, z) in [("100%", 1.0), ("200%", 2.0), ("400%", 4.0)] {
+                        if ui.selectable_label(self.zoom == Some(z), label).clicked() {
+                            self.zoom = Some(z);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Open as PDF").on_hover_text("Open a PDF rendering in the system PDF viewer").clicked() {
+                        actions.push(UiAction::OpenPdf(self.ai.clone()));
+                    }
+                });
+                ui.separator();
+                let Some(images) = &self.images else {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Rendering…");
+                    });
+                    return;
+                };
+                let px_per_pt = PREVIEW_DPI as f32 / 72.0;
+                let shown: Vec<usize> = match self.view {
+                    PreviewView::Converted => vec![0],
+                    PreviewView::Original => vec![1],
+                    PreviewView::SideBySide => vec![1, 0],
+                };
+                // Size in points of what is shown, for "Fit".
+                let mut total = egui::Vec2::ZERO;
+                for &i in &shown {
+                    if let Some(t) = &self.textures[i] {
+                        let s = t.size_vec2() / px_per_pt;
+                        total.x += s.x + 12.0;
+                        total.y = total.y.max(s.y + 24.0);
+                    }
+                }
+                let zoom = self.zoom.unwrap_or_else(|| fit_scale(total, ui.available_size()));
+                let scale = zoom / px_per_pt;
+                egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                    ui.horizontal_top(|ui| {
+                        for &i in &shown {
+                            let (caption, err) = if i == 0 {
+                                ("Converted (Illustrator 8)", images.converted.as_ref().err())
+                            } else {
+                                ("Original", images.original.as_ref().err())
+                            };
+                            Self::image_ui(ui, caption, &self.textures[i], err, scale);
+                            ui.add_space(12.0);
+                        }
+                    });
+                });
+            });
+        self.open = open;
+    }
+}
+
+/// Actions requested by the UI, handled after drawing.
+enum UiAction {
+    Preview { ai: PathBuf, source: PathBuf, page: usize },
+    OpenPdf(PathBuf),
+}
 
 struct App {
     queue: Queue,
@@ -274,6 +493,8 @@ struct App {
     gs: GsStatus,
     worker: Option<Receiver<WorkerMsg>>,
     notice: Option<String>,
+    preview: Option<PreviewWindow>,
+    pdf_jobs: Vec<Receiver<Result<PathBuf, String>>>,
 }
 
 impl App {
@@ -287,6 +508,8 @@ impl App {
             gs: GsStatus::detect(),
             worker: None,
             notice: None,
+            preview: None,
+            pdf_jobs: Vec::new(),
         }
     }
 
@@ -460,11 +683,11 @@ impl App {
         });
     }
 
-    fn queue_ui(&mut self, ui: &mut egui::Ui) {
+    fn queue_ui(&mut self, ui: &mut egui::Ui, actions: &mut Vec<UiAction>) {
         if self.queue.items.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    egui::RichText::new("Drop EPS, PS, PDF, AI or SVG files here\nor use “Add files…”")
+                    egui::RichText::new("Drop EPS, PS, PDF, AI, SVG or DXF files here\nor use “Add files…”")
                         .size(16.0)
                         .weak(),
                 );
@@ -496,15 +719,27 @@ impl App {
                             && ui.small_button("Open output folder").clicked()
                             && let Some(dir) = output_folder(outputs, &item.path)
                         {
-                            open_folder(&dir);
+                            open_path(&dir);
                         }
                     });
                 });
                 match &item.status {
                     Status::Done { outputs, warnings } => {
                         ui.indent(("out", item.id), |ui| {
-                            for o in outputs {
-                                ui.label(egui::RichText::new(format!("→ {}", o.display())).small());
+                            for (page, o) in outputs.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(format!("→ {}", o.display())).small());
+                                    if ui.small_button("Preview").on_hover_text("Show the converted file and the original").clicked() {
+                                        actions.push(UiAction::Preview { ai: o.clone(), source: item.path.clone(), page });
+                                    }
+                                    if ui
+                                        .small_button("Open as PDF")
+                                        .on_hover_text("Open a PDF rendering of the .ai file in the system PDF viewer")
+                                        .clicked()
+                                    {
+                                        actions.push(UiAction::OpenPdf(o.clone()));
+                                    }
+                                });
                             }
                             if !warnings.is_empty() {
                                 egui::CollapsingHeader::new(
@@ -555,6 +790,49 @@ impl App {
         });
     }
 
+    fn handle_actions(&mut self, ctx: &egui::Context, actions: Vec<UiAction>) {
+        let gs = self.gs.path().map(Path::to_path_buf);
+        for a in actions {
+            match a {
+                UiAction::Preview { ai, source, page } => {
+                    self.preview = Some(PreviewWindow::start(ctx, gs.clone(), ai, source, page));
+                }
+                UiAction::OpenPdf(ai) => {
+                    let (tx, rx) = channel();
+                    let (gs, ctx) = (gs.clone(), ctx.clone());
+                    std::thread::spawn(move || {
+                        let _ = tx.send(write_preview_pdf(gs.as_deref(), &ai, &std::env::temp_dir()));
+                        ctx.request_repaint();
+                    });
+                    self.pdf_jobs.push(rx);
+                    self.notice = Some("Writing PDF preview…".into());
+                }
+            }
+        }
+    }
+
+    fn poll_pdf_jobs(&mut self) {
+        let mut done = Vec::new();
+        for (i, rx) in self.pdf_jobs.iter().enumerate() {
+            match rx.try_recv() {
+                Ok(Ok(pdf)) => {
+                    open_path(&pdf);
+                    self.notice = Some(format!("Opened {}", pdf.display()));
+                    done.push(i);
+                }
+                Ok(Err(e)) => {
+                    self.notice = Some(format!("PDF preview failed: {e}"));
+                    done.push(i);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => done.push(i),
+            }
+        }
+        for i in done.into_iter().rev() {
+            self.pdf_jobs.remove(i);
+        }
+    }
+
     fn handle_drops(&mut self, ui: &mut egui::Ui) {
         let (dropped, hovering) = ui.ctx().input(|i| {
             (
@@ -584,6 +862,8 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_worker();
+        self.poll_pdf_jobs();
+        let mut actions = Vec::new();
         egui::Panel::top("settings_panel").show(ui, |ui| {
             ui.add_space(6.0);
             self.settings_ui(ui);
@@ -594,7 +874,14 @@ impl eframe::App for App {
             self.actions_ui(ui);
             ui.add_space(6.0);
         });
-        egui::CentralPanel::default().show(ui, |ui| self.queue_ui(ui));
+        egui::CentralPanel::default().show(ui, |ui| self.queue_ui(ui, &mut actions));
+        if let Some(p) = &mut self.preview {
+            p.ui(ui.ctx(), &mut actions);
+            if !p.open {
+                self.preview = None;
+            }
+        }
+        self.handle_actions(&ui.ctx().clone(), actions);
         self.handle_drops(ui);
     }
 }
@@ -719,6 +1006,56 @@ mod tests {
     fn output_folder_prefers_output_parent() {
         assert_eq!(output_folder(&["/o/a.ai".into()], Path::new("/s/a.eps")), Some(PathBuf::from("/o")));
         assert_eq!(output_folder(&[], Path::new("/s/a.eps")), Some(PathBuf::from("/s")));
+    }
+
+    #[test]
+    fn dxf_is_supported() {
+        assert!(is_supported(Path::new("plan.DXF")));
+        assert!(DIALOG_EXTENSIONS.contains(&"dxf"));
+    }
+
+    #[test]
+    fn preview_pdf_goes_to_temp_subfolder() {
+        let p = preview_pdf_path(Path::new("/tmp"), Path::new("/out/logo_p2.ai"));
+        assert_eq!(p, PathBuf::from("/tmp/ai8-converter-preview/logo_p2-preview.pdf"));
+    }
+
+    #[test]
+    fn fit_scale_never_enlarges() {
+        assert_eq!(fit_scale(egui::vec2(100.0, 50.0), egui::vec2(400.0, 400.0)), 1.0);
+        assert_eq!(fit_scale(egui::vec2(800.0, 100.0), egui::vec2(400.0, 400.0)), 0.5);
+        assert_eq!(fit_scale(egui::Vec2::ZERO, egui::vec2(400.0, 400.0)), 1.0);
+    }
+
+    #[test]
+    fn preview_without_ghostscript_reports_errors() {
+        let d = tmp("preview-nogs");
+        let svg = d.join("a.svg");
+        std::fs::write(&svg, r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="10" height="10"/></svg>"#).unwrap();
+        let r = render_preview(None, &d.join("a.ai"), &svg, 0, 72);
+        assert!(r.converted.unwrap_err().contains("Ghostscript"));
+        // SVG originals are rendered without Ghostscript.
+        let orig = r.original.unwrap();
+        assert_eq!((orig.width, orig.height), (15, 8));
+        assert!(write_preview_pdf(None, &d.join("a.ai"), &d).unwrap_err().contains("Ghostscript"));
+    }
+
+    #[test]
+    fn preview_renders_output_and_original() {
+        let Some(gs) = ghostscript::find() else { return };
+        let d = tmp("preview-gs");
+        let svg = d.join("b.svg");
+        std::fs::write(&svg, r#"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48"><rect width="48" height="48" fill="red"/></svg>"#).unwrap();
+        let opts = ConvertOptions { out_dir: Some(d.clone()), ghostscript: Some(gs.clone()), ..Default::default() };
+        let report = convert_file(&svg, &opts).unwrap();
+        let r = render_preview(Some(&gs), &report.outputs[0], &svg, 0, 72);
+        let (c, o) = (r.converted.unwrap(), r.original.unwrap());
+        assert_eq!((c.width, c.height), (72, 36));
+        assert_eq!((o.width, o.height), (72, 36));
+        assert_eq!(&c.pixel(10, 10)[..3], &[255, 0, 0]);
+        assert_eq!(&c.pixel(60, 10)[..3], &[255, 255, 255]);
+        let pdf = write_preview_pdf(Some(&gs), &report.outputs[0], &d).unwrap();
+        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
     }
 
     #[test]

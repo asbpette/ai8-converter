@@ -18,10 +18,12 @@ path = "src/bin/ai8conv.rs"
 anyhow = "1.0.104"
 eframe = "0.37.0"
 lopdf = "0.45.0"
+resvg = "0.48.1"
 rfd = "0.17.2"
 usvg = "0.48.1"
 
 [dev-dependencies]
+dxf = "0.6.2"
 flate2 = "1.1.10"
 
 [profile.release]

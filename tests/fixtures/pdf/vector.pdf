@@ -1,0 +1,57 @@
+%PDF-1.5
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 /MediaBox [0 0 300 200] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << >> >>
+endobj
+4 0 obj
+<<  /Length 273 >>
+stream
+
+0.2 0.4 0.8 rg 20 20 100 60 re f
+1 0 0 RG 4 w 1 J 1 j 30 100 m 80 180 130 20 180 100 c S
+0 0 0 1 k 200 50 m 280 50 l 240 120 l h 220 70 m 260 70 l 240 100 l h f*
+0 1 1 0 K 3 w [6 4] 2 d 200 150 m 290 190 l S
+q 150 100 m 190 100 l 190 140 l h W n 0.5 g 140 90 60 60 re f Q
+
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 250 180] /Contents 6 0 R /Resources << /Pattern << /PS 7 0 R >> >> >>
+endobj
+6 0 obj
+<<  /Length 130 >>
+stream
+
+q 2 0 0 2 50 50 cm 0 0.6 0 rg 0 0 40 40 re f Q
+0.9 g 0 0 0 RG 0.5 w 150 50 80 80 re B
+q /Pattern cs /PS scn 20 140 210 30 re f Q
+
+endstream
+endobj
+7 0 obj
+<< /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << /ColorSpace << /CS0 [/Separation /Cut#281#29#5C /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 1 0.5 0] /N 1 >>] >> >> /Length 48 >>
+stream
+/CS0 cs 1 scn 0 0 5 10 re f 0.4 scn 5 0 5 5 re f
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000151 00000 n 
+0000000231 00000 n 
+0000000556 00000 n 
+0000000685 00000 n 
+0000000867 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1212
+%%EOF

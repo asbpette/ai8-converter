@@ -370,6 +370,49 @@ pub fn bounds_of(els: &[Element]) -> Option<Rect> {
     })
 }
 
+/// How far a stroke can reach beyond its path: half the width, times the
+/// miter limit for mitered joins (a miter can reach that far) or √2 for
+/// square caps. 0 when there is no stroke.
+pub fn stroke_reach(s: Option<&Stroke>) -> f64 {
+    let Some(s) = s else { return 0.0 };
+    let w = if s.width.is_finite() { s.width.max(0.0) } else { 0.0 };
+    let mut k: f64 = 1.0;
+    if s.join == LineJoin::Miter {
+        k = k.max(s.miter_limit.clamp(1.0, 10.0));
+    }
+    if s.cap == LineCap::Square {
+        k = k.max(std::f64::consts::SQRT_2);
+    }
+    w / 2.0 * k
+}
+
+/// Like [`bounds_of`], but including the area painted by strokes (see
+/// [`stroke_reach`]), so that e.g. a stroked horizontal line has a height.
+pub fn painted_bounds(els: &[Element]) -> Option<Rect> {
+    els.iter().fold(None, |acc, e| {
+        let b = match e {
+            Element::Path(p) => subpath_bounds(&p.subpaths).map(|b| {
+                let r = stroke_reach(p.stroke.as_ref());
+                Rect { llx: b.llx - r, lly: b.lly - r, urx: b.urx + r, ury: b.ury + r }
+            }),
+            Element::Group(c) => painted_bounds(c),
+            Element::ClipGroup { clip, children, .. } => match (subpath_bounds(clip), painted_bounds(children)) {
+                (Some(c), Some(k)) => {
+                    let r = Rect {
+                        llx: c.llx.max(k.llx),
+                        lly: c.lly.max(k.lly),
+                        urx: c.urx.min(k.urx),
+                        ury: c.ury.min(k.ury),
+                    };
+                    (r.llx <= r.urx && r.lly <= r.ury).then_some(r)
+                }
+                _ => None,
+            },
+        };
+        union(acc, b)
+    })
+}
+
 /// 2D affine matrix in PDF/PostScript order [a b c d e f]:
 /// x' = a*x + c*y + e, y' = b*x + d*y + f.
 #[derive(Debug, Clone, Copy, PartialEq)]

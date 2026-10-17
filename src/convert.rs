@@ -2,7 +2,7 @@
 
 use crate::ai8::{ColorMode, WriteOptions, write_ai8};
 use crate::ir::Document;
-use crate::{ghostscript, patterns, pdf, svg};
+use crate::{dxf, ghostscript, patterns, pdf, svg};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
@@ -14,6 +14,8 @@ pub enum InputKind {
     PostScript,
     /// SVG or SVGZ.
     Svg,
+    /// AutoCAD DXF (ASCII or binary).
+    Dxf,
 }
 
 /// How pattern fills/strokes are written.
@@ -70,6 +72,9 @@ pub fn detect_kind(data: &[u8], path: &Path) -> Option<InputKind> {
     if head.starts_with(b"%!") {
         return Some(InputKind::PostScript);
     }
+    if crate::dxf::looks_like_dxf(head) {
+        return Some(InputKind::Dxf);
+    }
     // SVG may start with long comments / DOCTYPEs, so look further.
     let text = String::from_utf8_lossy(&data[..data.len().min(16 * 1024)]).to_ascii_lowercase();
     if text.contains("<svg") || (text.contains("<?xml") && text.contains("svg")) {
@@ -79,6 +84,7 @@ pub fn detect_kind(data: &[u8], path: &Path) -> Option<InputKind> {
         "pdf" => Some(InputKind::Pdf),
         "eps" | "epsf" | "epsi" | "ps" | "ai" => Some(InputKind::PostScript),
         "svg" | "svgz" => Some(InputKind::Svg),
+        "dxf" => Some(InputKind::Dxf),
         _ => None,
     }
 }
@@ -94,9 +100,10 @@ fn gs_path(opts: &ConvertOptions) -> Option<PathBuf> {
 /// Parse any supported input file into one IR document per page.
 pub fn load_documents(input: &Path, opts: &ConvertOptions) -> Result<Vec<Document>> {
     let data = std::fs::read(input).with_context(|| format!("reading {}", input.display()))?;
-    let kind = detect_kind(&data, input).context("unrecognised file type (expected EPS, PS, PDF, AI or SVG)")?;
+    let kind = detect_kind(&data, input).context("unrecognised file type (expected EPS, PS, PDF, AI, SVG or DXF)")?;
     match kind {
         InputKind::Svg => Ok(vec![svg::parse_svg(&data)?]),
+        InputKind::Dxf => Ok(vec![dxf::parse_dxf(&data)?]),
         InputKind::PostScript => {
             let Some(gs) = gs_path(opts) else {
                 bail!(
@@ -198,6 +205,11 @@ mod tests {
         assert_eq!(detect_kind(&long, p), Some(InputKind::Svg));
         // Illustrator 9+ files are PDF-compatible: PDF header after a short prefix.
         assert_eq!(detect_kind(b"\n%PDF-1.5\n", Path::new("a.ai")), Some(InputKind::Pdf));
+        // DXF: by content (ASCII, with a leading comment, and binary), or by extension.
+        assert_eq!(detect_kind(b"  0\nSECTION\n  2\nHEADER\n", p), Some(InputKind::Dxf));
+        assert_eq!(detect_kind(b"999\nmade by x\n0\nSECTION\n", p), Some(InputKind::Dxf));
+        assert_eq!(detect_kind(b"AutoCAD Binary DXF\r\n\x1a\0", p), Some(InputKind::Dxf));
+        assert_eq!(detect_kind(b"garbage", Path::new("plan.DXF")), Some(InputKind::Dxf));
     }
 
     #[test]

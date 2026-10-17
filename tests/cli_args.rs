@@ -196,3 +196,19 @@ fn partial_failure_exits_nonzero() {
     assert!(dir.join("good.ai").is_file(), "stderr: {}", stderr(&o));
     assert!(stderr(&o).contains("1 of 2"));
 }
+
+#[test]
+fn converts_dxf() {
+    let dir = temp_dir("dxf");
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dxf/r2000_full.dxf");
+    let input = dir.join("r2000_full.dxf");
+    std::fs::copy(&src, &input).unwrap();
+    for mode in ["native", "expand"] {
+        let out = dir.join(mode);
+        let o = ai8conv(&["--patterns".as_ref(), mode.as_ref(), "--out".as_ref(), out.as_os_str(), input.as_os_str()]);
+        assert!(o.status.success(), "stderr: {}", stderr(&o));
+        let ai = check_ai(&out.join("r2000_full.ai"));
+        // The fixture has hatch patterns: native swatches or expanded tiles.
+        assert_eq!(ai.contains("%AI3_BeginPattern"), mode == "native", "{mode}");
+    }
+}

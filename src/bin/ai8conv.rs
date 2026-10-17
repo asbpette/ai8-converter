@@ -1,11 +1,11 @@
-//! Command-line converter: EPS / PS / PDF / AI / SVG -> Adobe Illustrator 8.
+//! Command-line converter: EPS / PS / PDF / AI / SVG / DXF -> Adobe Illustrator 8.
 
 use ai8_converter::{ColorMode, ConvertOptions, PatternMode, convert_file};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-ai8conv - convert EPS / PS / PDF / AI / SVG files to Adobe Illustrator 8 (.ai)
+ai8conv - convert EPS / PS / PDF / AI / SVG / DXF files to Adobe Illustrator 8 (.ai)
 
 USAGE:
     ai8conv [OPTIONS] FILES...

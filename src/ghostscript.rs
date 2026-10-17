@@ -215,13 +215,31 @@ pub fn pdfwrite_args(outline_text: bool, eps_crop: bool) -> Vec<&'static str> {
     args
 }
 
+/// Run Ghostscript with `args` (the caller supplies devices, files, etc.),
+/// with the console hidden on Windows and a time limit. Fails with
+/// Ghostscript's output when it exits with an error or times out; returns its
+/// (stderr + stdout) output otherwise.
+pub fn run(gs: &Path, args: &[OsString], timeout: Duration) -> Result<String> {
+    let mut cmd = Command::new(gs);
+    cmd.args(args);
+    let out = run_with_timeout(cmd, timeout).with_context(|| format!("running Ghostscript ({})", gs.display()))?;
+    if out.timed_out {
+        bail!("Ghostscript timed out after {} s", timeout.as_secs());
+    }
+    if !out.success {
+        bail!("Ghostscript failed:\n{}", out.combined());
+    }
+    Ok(out.combined())
+}
+
 /// Unique temporary file, deleted on drop.
-struct TempFile {
+pub struct TempFile {
     path: PathBuf,
 }
 
 impl TempFile {
-    fn new(ext: &str) -> Self {
+    /// A new, not yet created, unique path in the temp directory.
+    pub fn new(ext: &str) -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()
@@ -230,6 +248,10 @@ impl TempFile {
             .unwrap_or(0);
         let name = format!("ai8conv-{}-{}-{}.{}", std::process::id(), n, nanos, ext);
         Self { path: std::env::temp_dir().join(name) }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 
