@@ -32,6 +32,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# 7-Zip is "7zz" on macOS/Homebrew and newer Debian/Ubuntu, "7z" with p7zip.
+SEVENZIP="$(command -v 7zz || command -v 7z || true)"
 TARGET=x86_64-pc-windows-gnu
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | cut -d'"' -f2)"
 NAME="AI8-Converter-${VERSION}-windows-x64"
@@ -111,11 +113,12 @@ cp "$BIN/ai8-converter.exe" "$PKG/AI8 Converter.exe"
 cp "$BIN/ai8conv.exe" "$PKG/ai8conv.exe"
 
 if [[ $WITH_GS == 1 ]]; then
+  [[ -n "$SEVENZIP" ]] || { echo "error: 7-Zip (7zz or 7z) is required to unpack Ghostscript" >&2; exit 1; }
   echo "==> Downloading Ghostscript gs${GS_VERSION}w64.exe"
   gh release download "gs${GS_VERSION}" -R ArtifexSoftware/ghostpdl-downloads \
     -p "gs${GS_VERSION}w64.exe" -D "$WORK" --clobber
   mkdir -p "$WORK/gsx"
-  7zz x -y -o"$WORK/gsx" "$WORK/gs${GS_VERSION}w64.exe" >/dev/null
+  "$SEVENZIP" x -y -o"$WORK/gsx" "$WORK/gs${GS_VERSION}w64.exe" >/dev/null
 
   mkdir -p "$PKG/gs/bin"
   cp "$WORK/gsx/bin/gswin64c.exe" "$WORK/gsx/bin/gsdll64.dll" "$PKG/gs/bin/"
@@ -140,12 +143,12 @@ while (i := data.find(b"MSCF\0\0\0\0", i)) >= 0:
 PY
   found=0
   for cab in "$WORK"/cabs/*.cab; do
-    d="${cab%.cab}"; mkdir -p "$d"; 7zz x -y -o"$d" "$cab" >/dev/null || continue
+    d="${cab%.cab}"; mkdir -p "$d"; "$SEVENZIP" x -y -o"$d" "$cab" >/dev/null || continue
     for inner in "$d"/*; do
       [[ -f "$inner" ]] || continue
-      listing="$(7zz l "$inner" 2>/dev/null || true)"
+      listing="$("$SEVENZIP" l "$inner" 2>/dev/null || true)"
       if [[ "$listing" == *msvcp140.dll* ]]; then
-        rt="$inner.x"; mkdir -p "$rt"; 7zz x -y -o"$rt" "$inner" >/dev/null
+        rt="$inner.x"; mkdir -p "$rt"; "$SEVENZIP" x -y -o"$rt" "$inner" >/dev/null
         if file "$rt/msvcp140.dll" | grep -q "x86-64"; then
           cp "$rt"/msvcp140.dll "$rt"/vcruntime140.dll "$rt"/vcruntime140_1.dll "$PKG/gs/bin/"
           found=1; break 2

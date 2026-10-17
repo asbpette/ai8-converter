@@ -75,6 +75,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN_DIR/$BIN" "$APP/Contents/MacOS/$BIN"
 cp "$BIN_DIR/ai8conv" "$APP/Contents/MacOS/ai8conv"
+cp "assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 if [ -n "$GS_DIR" ]; then
     if [ ! -x "$GS_DIR/bin/gs" ]; then
@@ -118,6 +119,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>

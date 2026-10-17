@@ -886,9 +886,19 @@ impl eframe::App for App {
     }
 }
 
+/// Window/taskbar icon, decoded from the PNG embedded at build time.
+fn app_icon() -> Option<egui::IconData> {
+    let r = preview::decode_png(include_bytes!("../assets/icon-256.png")).ok()?;
+    Some(egui::IconData { rgba: r.rgba, width: r.width, height: r.height })
+}
+
 fn main() -> eframe::Result {
+    let mut viewport = egui::ViewportBuilder::default();
+    if let Some(icon) = app_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
+        viewport: viewport
             .with_title("AI8 Converter")
             .with_inner_size([720.0, 520.0])
             .with_min_inner_size([720.0, 520.0])

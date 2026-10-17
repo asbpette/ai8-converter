@@ -60,6 +60,10 @@ const ALLOWANCES: &[(&str, Option<PatternMode>, f64)] = &[
     // Ghostscript writes already looks like our output (2.3% differs).
     // pattern_nested_aligned.eps covers the representable case exactly.
     ("pattern_nested.eps", None, 3.0),
+    // Text is outlined with the installed system fonts while resvg renders the
+    // reference with the same fonts but different hinting/anti-aliasing; the
+    // edge pixels differ more on Windows (0.65%) than on macOS (0.3%).
+    ("text.svg", None, 1.5),
 ];
 
 fn limit(name: &str, mode: PatternMode) -> f64 {
