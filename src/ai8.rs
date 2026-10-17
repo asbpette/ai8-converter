@@ -778,16 +778,15 @@ impl Writer {
     fn subpath(&mut self, sp: &Subpath) {
         let (x, y) = self.pt(&sp.start);
         self.line(&format!("{} {} m", x, y));
-        let mut segs: &[Segment] = &sp.segments;
-        // A closing line back to the start point is redundant for closed paths.
-        if sp.closed
-            && let Some(Segment::Line(p)) = segs.last()
-            && (p.x - sp.start.x).abs() < 1e-6
-            && (p.y - sp.start.y).abs() < 1e-6
-        {
-            segs = &segs[..segs.len() - 1];
-        }
-        for s in segs {
+        // The closing edge is always written out, even though the lowercase
+        // paint operator closes the path: some laser/cutter programs only
+        // draw the segments present in the file and drop the implicit edge.
+        let end = match sp.segments.last() {
+            Some(Segment::Line(p)) | Some(Segment::Curve(_, _, p)) => self.pt(p),
+            None => (x.clone(), y.clone()),
+        };
+        let close = sp.closed && end != (x.clone(), y.clone());
+        for s in &sp.segments {
             match s {
                 Segment::Line(p) => {
                     let (x, y) = self.pt(p);
@@ -800,6 +799,9 @@ impl Writer {
                     self.line(&format!("{} {} {} {} {} {} C", ax, ay, bx, by, cx, cy));
                 }
             }
+        }
+        if close {
+            self.line(&format!("{} {} L", x, y));
         }
     }
 
@@ -1056,8 +1058,27 @@ mod tests {
         p.fill = Some(Color::Cmyk(0.0, 1.0, 1.0, 0.0));
         let ai = write_ai8(&doc_with(vec![Element::Path(p)]), &WriteOptions::default());
         assert!(ai.contains("0 1 1 0 k\n"));
-        assert!(ai.contains("10 10 m\n60 10 L\n60 60 L\n10 60 L\nf\n"));
+        assert!(ai.contains("10 10 m\n60 10 L\n60 60 L\n10 60 L\n10 10 L\nf\n"));
         assert!(ai.contains("%%BoundingBox: 10 10 60 60"));
+    }
+
+    /// Closed paths always carry an explicit closing edge (laser software
+    /// that ignores the implicit close would drop it), without duplicating
+    /// one that the path already has.
+    #[test]
+    fn closing_edge_written_once() {
+        let mut open_end = Subpath::new(Point::new(0.0, 0.0));
+        open_end.segments.push(Segment::Line(Point::new(10.0, 0.0)));
+        open_end.segments.push(Segment::Line(Point::new(10.0, 10.0)));
+        open_end.closed = true;
+        let mut explicit = open_end.clone();
+        explicit.segments.push(Segment::Line(Point::new(0.0, 0.0)));
+        for sp in [open_end, explicit] {
+            let mut p = PathItem::new(vec![sp]);
+            p.stroke = Some(Stroke::solid(Color::Gray(0.0), 1.0));
+            let ai = write_ai8(&doc_with(vec![Element::Path(p)]), &WriteOptions::default());
+            assert!(ai.contains("0 0 m\n10 0 L\n10 10 L\n0 0 L\ns\n"), "{ai}");
+        }
     }
 
     #[test]
@@ -1185,7 +1206,7 @@ mod tests {
             &WriteOptions::default(),
         );
         assert!(ai.contains("%AI3_BeginPattern: (Dot)\n(Dot) 0 0 8 8 [\n%AI3_Tile\n(0 O 0 R 0 g\n0 G\n) @\n(\n%AI6_BeginPatternLayer\n800 Ar\n0.25 g\n"));
-        assert!(ai.contains("0 0 m\n4 0 L\n4 4 L\n0 4 L\nf\n%AI6_EndPatternLayer\n) &\n] E\n%AI3_EndPattern\n"));
+        assert!(ai.contains("0 0 m\n4 0 L\n4 4 L\n0 4 L\n0 0 L\nf\n%AI6_EndPatternLayer\n) &\n] E\n%AI3_EndPattern\n"));
         assert!(ai.contains("(Dot) 0 0 1 1 0 0 0 0 0 [2 0 0 2 4 6] p\n"));
         // No gradients: no gradient count.
         assert!(!ai.contains(" Bn\n"));

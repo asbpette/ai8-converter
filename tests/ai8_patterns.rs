@@ -158,7 +158,7 @@ fn pattern_tile_art_is_normalised() {
     assert!(s.contains("(S) 0 0 10 10 [\n"));
     // Art drawn at (5,7)-(10,12) in pattern space → (0,0)-(5,5) in the tile;
     // the page offset does not apply inside tiles.
-    assert!(s.contains("0 0 m\n5 0 L\n5 5 L\n0 5 L\nf\n"), "{s}");
+    assert!(s.contains("0 0 m\n5 0 L\n5 5 L\n0 5 L\n0 0 L\nf\n"), "{s}");
     assert!(s.contains("%AI6_BeginPatternLayer\n800 Ar\n"));
 }
 
@@ -360,7 +360,7 @@ fn linear_gradient_definition_and_instance() {
     ), "{s}");
     let a = art(&ai);
     // Path, then Bb, Bg, f, 0 BB.
-    assert!(a.contains("10 10 m\n110 10 L\n110 60 L\n10 60 L\nBb\n1 (Linear Gradient 1) 10 10 0 100 1 0 0 1 0 0 Bg\nf\n0 BB\n"), "{a}");
+    assert!(a.contains("10 10 m\n110 10 L\n110 60 L\n10 60 L\n10 10 L\nBb\n1 (Linear Gradient 1) 10 10 0 100 1 0 0 1 0 0 Bg\nf\n0 BB\n"), "{a}");
     assert!(!a.contains(" k\n"), "no solid fill colour for a gradient fill");
 }
 
@@ -602,7 +602,7 @@ fn expand_mode_rotated_pattern_page_offset() {
     let ai = write(&doc);
     let stats = common::validate_ai8(&ai);
     assert!(stats.paths > 36 && stats.paths < 15 * 15, "{}", stats.paths);
-    assert!(ai.contains("q\n0 XR\n0 0 m\n60 0 L\n60 60 L\n0 60 L\nh W\nn\n"));
+    assert!(ai.contains("q\n0 XR\n0 0 m\n60 0 L\n60 60 L\n0 60 L\n0 0 L\nh W\nn\n"));
 }
 
 #[test]
