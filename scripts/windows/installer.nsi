@@ -60,13 +60,25 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "FileDescription" "${APPNAME} ${VERSION} Setup"
 VIAddVersionKey "CompanyName" "${PUBLISHER}"
-VIAddVersionKey "LegalCopyright" "Copyright (C) ${PUBLISHER}"
+VIAddVersionKey "LegalCopyright" "Copyright (c) Asbjørn Pettersen. All rights reserved."
 
 ; ---- Modern UI ----
 !define MUI_ABORTWARNING
 !ifdef ICONFILE
   !define MUI_ICON "${ICONFILE}"
   !define MUI_UNICON "${ICONFILE}"
+!endif
+!ifdef PANELBMP
+  ; Branded side panel on the Welcome and Finish pages.
+  !define MUI_WELCOMEFINISHPAGE_BITMAP "${PANELBMP}"
+  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${PANELBMP}"
+!endif
+!ifdef HEADERBMP
+  ; Small logo in the header of the inner pages.
+  !define MUI_HEADERIMAGE
+  !define MUI_HEADERIMAGE_RIGHT
+  !define MUI_HEADERIMAGE_BITMAP "${HEADERBMP}"
+  !define MUI_HEADERIMAGE_UNBITMAP "${HEADERBMP}"
 !endif
 !define MUI_COMPONENTSPAGE_NODESC
 !define MUI_FINISHPAGE_NOAUTOCLOSE

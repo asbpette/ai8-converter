@@ -57,6 +57,7 @@ make_res() {
   mkdir -p "$WORK/res"
   cp "$WINDIR/ai8.ico" "$WORK/res/ai8.ico"
   cat > "$rc" <<RC
+#pragma code_page(65001)
 #include <winver.h>
 1 ICON "ai8.ico"
 1 VERSIONINFO
@@ -76,7 +77,7 @@ BEGIN
       VALUE "FileDescription", "$2"
       VALUE "FileVersion", "$VERSION"
       VALUE "InternalName", "$3"
-      VALUE "LegalCopyright", "Copyright (C) IOTEK"
+      VALUE "LegalCopyright", "Copyright (c) Asbjørn Pettersen. All rights reserved."
       VALUE "OriginalFilename", "$3"
       VALUE "ProductName", "AI8 Converter"
       VALUE "ProductVersion", "$VERSION"
@@ -166,7 +167,7 @@ cat > "$PKG/README.txt" <<'TXT'
 AI8 Converter
 =============
 
-Converts EPS, PS, PDF, AI and SVG vector files to Adobe Illustrator 8 (.ai).
+Converts EPS, PS, PDF, AI SVG and DXF vector files to Adobe Illustrator 8 (.ai).
 
 How to use
 ----------
@@ -205,9 +206,9 @@ if [[ $WITH_INSTALLER == 1 ]]; then
   {
     cat <<TXT
 AI8 Converter $VERSION
-Copyright (C) IOTEK. All rights reserved.
+Copyright (c) Asbjørn Pettersen. All rights reserved.
 
-This installs AI8 Converter, which converts EPS, PS, PDF, AI and SVG vector
+This installs AI8 Converter, which converts EPS, PS, PDF, AI SVG and DXF vector
 files to Adobe Illustrator 8 (.ai) files.
 
 The software is provided "as is", without warranty of any kind.
@@ -234,6 +235,7 @@ TXT
     -DVERSION="$VERSION" -DVERSION4="$VERSION4" \
     -DSRCDIR="$PKG" -DLICENSEFILE="$LICENSE" \
     -DICONFILE="$WINDIR/ai8.ico" -DOUTFILE="$SETUP" \
+    -DPANELBMP="$WINDIR/installer-panel.bmp" -DHEADERBMP="$WINDIR/installer-header.bmp" \
     "$WINDIR/installer.nsi"
   echo "==> $SETUP ($(du -h "$SETUP" | cut -f1))"
 fi

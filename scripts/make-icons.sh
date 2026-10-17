@@ -6,6 +6,8 @@
 #   assets/icon-256.png      window icon (embedded in the app)
 #   assets/AppIcon.icns      macOS bundle icon (needs iconutil, macOS only)
 #   scripts/windows/ai8.ico  Windows exe + installer icon
+#   scripts/windows/installer-panel.bmp   NSIS welcome/finish side panel (164x314)
+#   scripts/windows/installer-header.bmp  NSIS inner-page header (150x57)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -47,4 +49,9 @@ if command -v iconutil >/dev/null; then
 else
   echo "iconutil not found (not macOS): assets/AppIcon.icns left unchanged" >&2
 fi
+# NSIS installer artwork (24-bit BMP at the standard MUI2 sizes; masters
+# assets/logo/installer-*.svg reuse the logo shapes).
+render installer-panel.svg 314 scripts/windows/installer-panel.bmp
+render installer-header.svg 150 scripts/windows/installer-header.bmp
+
 echo "icons written"

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 164 314" width="164" height="314">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E2A5E"/><stop offset="1" stop-color="#0B0F26"/>
+    </linearGradient>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="512" y1="240" x2="512" y2="800">
+      <stop offset="0" stop-color="#4FE3D6"/><stop offset="1" stop-color="#8E6BFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="164" height="314" fill="url(#bg)"/>
+  <g fill="none" stroke="#4FE3D6" stroke-opacity="0.16" stroke-width="1.1">
+    <path d="M-10,266 C40,254 92,280 174,262"/>
+    <path d="M-10,273 C48,262 100,288 174,269"/>
+  </g>
+  <g transform="translate(82,118) scale(0.205) translate(-512,-512)">
+    
+  <g fill="none" stroke="url(#ink)" stroke-width="88">
+    <circle cx="512" cy="370" r="116"/>
+    <circle cx="512" cy="622" r="146"/>
+  </g>
+  <line x1="372" y1="254" x2="652" y2="254" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="372" cy="254" r="22" fill="#fff"/>
+  <circle cx="652" cy="254" r="22" fill="#fff"/>
+  <rect x="478" y="220" width="68" height="68" rx="6" fill="#0B0F26" stroke="#fff" stroke-width="12"/>
+  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.92" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M482.3,649.0 L503.4,595.0 L524.4,649.0"/>
+    <path d="M490.7,629.6 L516.0,629.6"/>
+    <path d="M541.7,595.0 L541.7,649.0"/>
+  </g>
+
+  </g>
+  <text x="82" y="236" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-weight="600" font-size="15" fill="#FFFFFF">AI8 Converter</text>
+  <text x="82" y="252" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="8.5" fill="#FFFFFF" fill-opacity="0.65" letter-spacing="0.3">Vector files to Illustrator 8</text>
+  <text x="82" y="292" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="7.4" fill="#FFFFFF" fill-opacity="0.55">Copyright (c) Asbjørn Pettersen.</text>
+  <text x="82" y="302" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="7.4" fill="#FFFFFF" fill-opacity="0.55">All rights reserved.</text>
+</svg>

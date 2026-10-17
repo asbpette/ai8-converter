@@ -159,4 +159,4 @@ and the zipped macOS `.app` as artifacts.
 
 ## License
 
-Copyright © IOTEK. All rights reserved. Bundled Ghostscript is © Artifex Software, licensed under the GNU AGPL v3.
+Copyright (c) Asbjørn Pettersen. All rights reserved. Bundled Ghostscript is © Artifex Software, licensed under the GNU AGPL v3.
