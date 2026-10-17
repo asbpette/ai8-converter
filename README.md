@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon-256.png" width="128" alt="AI8 Converter logo"></p>
+
 # AI8 Converter
 
 A small desktop app (Windows and macOS) and command-line tool that converts
