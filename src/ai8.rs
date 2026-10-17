@@ -269,7 +269,8 @@ impl Writer {
 
     /// AI colour operator text. `stroke` selects the upper-case variant.
     fn color_op(&self, c: &Color, stroke: bool) -> String {
-        let c = self.map_color(c);
+        // TODO(native patterns/gradients): flat approximation for now.
+        let c = self.map_color(&c.flatten());
         let n = |v: f64| num(clamp01(v));
         match c {
             Color::Gray(g) => format!("{} {}", n(g), if stroke { "G" } else { "g" }),
@@ -295,6 +296,7 @@ impl Writer {
             }
             // Custom colour: "c m y k (name) tint x". In the AI format the tint
             // operand is inverted: 0 = 100% of the colour, 1 = 0%.
+            Color::Pattern(_) | Color::Gradient(_) => unreachable!("flattened above"),
             Color::Spot { name, cmyk, tint } => format!(
                 "{} {} {} {} {} {} {}",
                 n(cmyk[0]),

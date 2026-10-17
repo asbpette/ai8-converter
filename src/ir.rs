@@ -53,6 +53,145 @@ pub enum Color {
     /// Named spot colour (e.g. "CutContour"). `cmyk` is the alternate
     /// process approximation of 100% ink; `tint` is 0 (no ink) ..= 1 (full ink).
     Spot { name: String, cmyk: [f64; 4], tint: f64 },
+    /// Tiling pattern fill/stroke (PDF PatternType 1, SVG <pattern>).
+    Pattern(PatternPaint),
+    /// Linear or radial gradient (PDF shading types 2/3, SVG gradients).
+    Gradient(GradientPaint),
+}
+
+impl Color {
+    /// Flat process/spot approximation of any paint (patterns: average-ish
+    /// colour of the tile art; gradients: middle stop). Never returns a
+    /// Pattern or Gradient.
+    pub fn flatten(&self) -> Color {
+        match self {
+            Color::Pattern(p) => p.pattern.representative_color().unwrap_or(Color::Gray(0.5)),
+            Color::Gradient(g) => g.gradient.color_at(0.5).flatten(),
+            c => c.clone(),
+        }
+    }
+
+    pub fn is_solid(&self) -> bool {
+        !matches!(self, Color::Pattern(_) | Color::Gradient(_))
+    }
+}
+
+/// A tiling pattern definition, shared between all uses.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pattern {
+    /// Unique (per document) name, used for the AI pattern swatch.
+    pub name: String,
+    /// Tile cell in pattern space (PDF /BBox). Art outside it is clipped.
+    pub bbox: Rect,
+    /// Repeat distances in pattern space (PDF /XStep /YStep). Usually equal to
+    /// the bbox size, but may differ (gaps or overlaps between tiles).
+    pub x_step: f64,
+    pub y_step: f64,
+    /// Tile artwork in pattern space with colours fully resolved (for PDF
+    /// uncoloured patterns the parser bakes the colour of use into a separate
+    /// Pattern instance). May itself contain pattern/gradient paints.
+    pub elements: Vec<Element>,
+}
+
+impl Pattern {
+    /// Colour of the first solid-painted path in the tile, if any.
+    pub fn representative_color(&self) -> Option<Color> {
+        fn find(els: &[Element]) -> Option<Color> {
+            for e in els {
+                let c = match e {
+                    Element::Path(p) => p
+                        .fill
+                        .as_ref()
+                        .or(p.stroke.as_ref().map(|s| &s.color))
+                        .map(|c| c.flatten()),
+                    Element::Group(c) => find(c),
+                    Element::ClipGroup { children, .. } => find(children),
+                };
+                if c.is_some() {
+                    return c;
+                }
+            }
+            None
+        }
+        find(&self.elements)
+    }
+}
+
+/// A use of a pattern: `matrix` maps pattern space to page space (PDF: the
+/// pattern /Matrix concatenated with the base CTM of the page/form).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PatternPaint {
+    pub pattern: std::sync::Arc<Pattern>,
+    pub matrix: Matrix,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientKind {
+    /// Axis from `start` to `end`.
+    Linear,
+    /// Circle centred at `end` with radius `radius`; `start` is the focal
+    /// (highlight) point, equal to `end` for a plain radial gradient.
+    Radial,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GradientStop {
+    /// Position along the gradient, 0..=1, non-decreasing.
+    pub offset: f64,
+    /// Solid colour (Gray/Rgb/Cmyk/Spot only).
+    pub color: Color,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gradient {
+    pub kind: GradientKind,
+    /// At least two stops, sorted by offset.
+    pub stops: Vec<GradientStop>,
+}
+
+impl Gradient {
+    /// Interpolated colour at `t` (0..=1). Spot/mixed spaces fall back to the
+    /// nearest stop.
+    pub fn color_at(&self, t: f64) -> Color {
+        let Some(first) = self.stops.first() else { return Color::Gray(0.5) };
+        let t = t.clamp(0.0, 1.0);
+        let mut prev = first;
+        for s in &self.stops {
+            if s.offset >= t {
+                let span = s.offset - prev.offset;
+                let u = if span > 1e-12 { (t - prev.offset) / span } else { 1.0 };
+                return lerp_color(&prev.color, &s.color, u);
+            }
+            prev = s;
+        }
+        prev.color.clone()
+    }
+}
+
+fn lerp_color(a: &Color, b: &Color, u: f64) -> Color {
+    let l = |x: f64, y: f64| x + (y - x) * u;
+    match (a, b) {
+        (Color::Gray(x), Color::Gray(y)) => Color::Gray(l(*x, *y)),
+        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => Color::Rgb(l(*r1, *r2), l(*g1, *g2), l(*b1, *b2)),
+        (Color::Cmyk(c1, m1, y1, k1), Color::Cmyk(c2, m2, y2, k2)) => {
+            Color::Cmyk(l(*c1, *c2), l(*m1, *m2), l(*y1, *y2), l(*k1, *k2))
+        }
+        (Color::Spot { name: n1, cmyk, tint: t1 }, Color::Spot { name: n2, tint: t2, .. }) if n1 == n2 => {
+            Color::Spot { name: n1.clone(), cmyk: *cmyk, tint: l(*t1, *t2) }
+        }
+        _ => if u < 0.5 { a.clone() } else { b.clone() },
+    }
+}
+
+/// A use of a gradient. `start`, `end` and `radius` are in gradient space;
+/// `matrix` maps gradient space to page space.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GradientPaint {
+    pub gradient: std::sync::Arc<Gradient>,
+    pub start: Point,
+    pub end: Point,
+    pub radius: f64,
+    pub matrix: Matrix,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

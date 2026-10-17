@@ -8,4 +8,4 @@ pub mod pdf;
 pub mod svg;
 
 pub use ai8::{ColorMode, WriteOptions, write_ai8};
-pub use convert::{ConvertOptions, ConvertReport, InputKind, convert_file, detect_kind};
+pub use convert::{ConvertOptions, PatternMode, ConvertReport, InputKind, convert_file, detect_kind};

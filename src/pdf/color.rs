@@ -59,6 +59,7 @@ pub fn color_to_cmyk(c: &Color) -> [f64; 4] {
         Color::Rgb(r, g, b) => rgb_to_cmyk(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)),
         Color::Cmyk(c, m, y, k) => [*c, *m, *y, *k],
         Color::Spot { cmyk, tint, .. } => cmyk.map(|v| v * tint),
+        Color::Pattern(_) | Color::Gradient(_) => color_to_cmyk(&c.flatten()),
     }
 }
 

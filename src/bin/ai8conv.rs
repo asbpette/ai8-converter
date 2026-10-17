@@ -116,6 +116,7 @@ fn main() -> ExitCode {
     }
     let opts = ConvertOptions {
         color_mode: o.color,
+        pattern_mode: Default::default(),
         outline_text_in_pdf: o.outline_text,
         out_dir: o.out,
         ghostscript: o.gs,

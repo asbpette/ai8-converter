@@ -16,9 +16,21 @@ pub enum InputKind {
     Svg,
 }
 
+/// How pattern fills/strokes are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatternMode {
+    /// Native Illustrator 8 pattern swatches (editable in Illustrator).
+    #[default]
+    Native,
+    /// Expand patterns into plain clipped tile paths (for cutters/RIPs that
+    /// do not understand pattern fills).
+    Expand,
+}
+
 #[derive(Debug, Clone)]
 pub struct ConvertOptions {
     pub color_mode: ColorMode,
+    pub pattern_mode: PatternMode,
     /// Convert text to outlines by routing PDFs through Ghostscript as well
     /// (EPS/PS always have their text outlined).
     pub outline_text_in_pdf: bool,
@@ -30,7 +42,7 @@ pub struct ConvertOptions {
 
 impl Default for ConvertOptions {
     fn default() -> Self {
-        Self { color_mode: ColorMode::Preserve, outline_text_in_pdf: true, out_dir: None, ghostscript: None }
+        Self { color_mode: ColorMode::Preserve, pattern_mode: PatternMode::Native, outline_text_in_pdf: true, out_dir: None, ghostscript: None }
     }
 }
 

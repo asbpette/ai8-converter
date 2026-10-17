@@ -194,6 +194,7 @@ fn color_mode_label(m: ColorMode) -> &'static str {
 fn build_options(location: &OutputLocation, color: ColorMode, outline: bool, gs: &GsStatus) -> ConvertOptions {
     ConvertOptions {
         color_mode: color,
+        pattern_mode: Default::default(),
         outline_text_in_pdf: outline,
         out_dir: match location {
             OutputLocation::SameAsSource => None,
