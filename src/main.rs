@@ -265,6 +265,7 @@ fn convert_guarded(path: &Path, opts: &ConvertOptions, format: OutputFormat) -> 
             format!("internal error: {msg}")
         })
         .and_then(|r| r.map_err(|e| format!("{e:#}")))
+}
 
 /// Artifex's Ghostscript download page.
 const GS_DOWNLOAD_URL: &str = "https://ghostscript.com/releases/gsdnld.html";
