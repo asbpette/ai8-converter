@@ -37,8 +37,11 @@ Ghostscript status line offers a **Get Ghostscript…** button, and **Re-detect*
 picks it up afterwards without a restart. The Windows package contains
 `Install Ghostscript.cmd`, and the Windows installer offers *Install
 Ghostscript from Artifex* as an optional step that runs the same script. It
-installs through Chocolatey when that is present, and otherwise opens Artifex's
-download page; either way Ghostscript comes from Artifex, not from us.
+downloads Artifex's own installer, verifies their Authenticode signature on it
+before running anything, and starts it so you accept Artifex's licence
+directly. Chocolatey is used instead when it is already installed, and if
+anything fails it opens Artifex's download page. Either way Ghostscript comes
+from Artifex, never from us.
 
 The app looks for Ghostscript in this order:
 

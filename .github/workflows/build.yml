@@ -24,6 +24,16 @@ jobs:
       - name: Show detected Ghostscript
         shell: pwsh
         run: Get-ChildItem "C:\Program Files\gs" -Recurse -Filter gswin64c.exe | Select-Object -ExpandProperty FullName
+      # The Ghostscript helper ships to users but never runs in these tests, so
+      # at least prove it parses on a real Windows PowerShell.
+      - name: Check the Ghostscript helper parses
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/windows/install-ghostscript.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+          Write-Host 'install-ghostscript.ps1 parses cleanly'
       - name: Clippy
         run: cargo clippy --all-targets
       - name: Test
