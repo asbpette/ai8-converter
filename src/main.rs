@@ -270,10 +270,12 @@ fn convert_guarded(path: &Path, opts: &ConvertOptions, format: OutputFormat) -> 
 /// Artifex's Ghostscript download page.
 const GS_DOWNLOAD_URL: &str = "https://ghostscript.com/releases/gsdnld.html";
 
-/// The one-liner that installs Ghostscript on this platform.
+/// How to install Ghostscript on this platform. Windows has no winget package
+/// (Artifex disabled the silent installer winget needs), so point at the
+/// helper script, which falls back to Artifex's download page.
 fn gs_install_command() -> &'static str {
     if cfg!(windows) {
-        "winget install ArtifexSoftware.GhostScript"
+        "run \"Install Ghostscript.cmd\", or get it from ghostscript.com"
     } else if cfg!(target_os = "macos") {
         "brew install ghostscript"
     } else {

@@ -129,35 +129,68 @@ rem Installs Ghostscript, which AI8 Converter needs to read EPS and PS files.
 rem Ghostscript is separate software by Artifex Software, Inc., licensed under
 rem the GNU AGPL v3. It is obtained from Artifex, not from AI8 Converter.
 rem
-rem No parenthesised blocks below on purpose: %errorlevel% expands at parse
-rem time inside a block, so "if errorlevel N" + goto is the reliable form.
+rem Pass /noprompt to skip the "press any key" pauses (the NSIS installer does).
+rem
+rem Two cmd traps this avoids:
+rem  * %errorlevel% expands at parse time inside a parenthesised block, so
+rem    there are no blocks here, only "goto".
+rem  * "if errorlevel 1" is a signed ">= 1" test, so it MISSES the negative
+rem    exit codes package managers return (winget's "no package found" is
+rem    0x8A150014). Hence "neq 0", and a check that the file really appeared.
 setlocal
+set "NOPAUSE="
+if /i "%~1"=="/noprompt" set "NOPAUSE=1"
+
 echo AI8 Converter needs Ghostscript to read EPS and PS files.
 echo Ghostscript is separate software by Artifex Software, Inc. - GNU AGPL v3.
 echo.
 
-where winget >nul 2>&1
-if errorlevel 1 goto page
+call :find
+if defined GSEXE goto done
 
-echo Installing with the Windows Package Manager...
-winget install --exact --id ArtifexSoftware.GhostScript --accept-source-agreements --accept-package-agreements
-if errorlevel 1 goto page
+rem Chocolatey is the only package manager that currently carries Ghostscript.
+rem The Windows Package Manager has no manifest for it, because Artifex
+rem disabled the silent installer that winget requires.
+where choco >nul 2>&1
+if %errorlevel% neq 0 goto page
 
+echo Installing with Chocolatey...
+choco install ghostscript -y
 echo.
-echo Done. Start AI8 Converter, or press "Re-detect" on its Ghostscript
-echo line, and it will be picked up.
-pause
+
+rem Believe the filesystem, not the exit code.
+call :find
+if not defined GSEXE goto page
+
+:done
+echo Ghostscript is ready:
+echo   %GSEXE%
+echo.
+echo Start AI8 Converter, or press "Re-detect" on its Ghostscript line.
+if not defined NOPAUSE pause
 exit /b 0
 
 :page
-echo.
 echo Could not install it automatically. Opening Artifex's download page.
 start "" https://ghostscript.com/releases/gsdnld.html
 echo.
 echo Download the 64-bit Ghostscript installer for Windows and run it, then
 echo start AI8 Converter or press "Re-detect" on its Ghostscript line.
-pause
+if not defined NOPAUSE pause
 exit /b 1
+
+rem Locate Ghostscript the same way the app does: the versioned install
+rem directories first, then PATH.
+:find
+set "GSEXE="
+for /d %%D in ("%ProgramFiles%\gs\gs*") do if exist "%%~D\bin\gswin64c.exe" set "GSEXE=%%~D\bin\gswin64c.exe"
+if defined GSEXE exit /b 0
+rem Pre-test so the "for /f" command needs no redirection: escaping ">" inside
+rem the single quotes is unreliable.
+where gswin64c.exe >nul 2>&1
+if %errorlevel% neq 0 exit /b 0
+for /f "delims=" %%P in ('where gswin64c.exe') do set "GSEXE=%%P"
+exit /b 0
 CMD
 # Windows line endings, or cmd.exe mis-parses the file.
 sed -i '' 's/$/\r/' "$PKG/Install Ghostscript.cmd" 2>/dev/null \
@@ -182,9 +215,9 @@ Command line:  ai8conv.exe --help
 EPS and PS files
 ----------------
 Reading EPS and PS needs Ghostscript, which is not included. Run
-"Install Ghostscript.cmd" in this folder and it will install it with the
-Windows Package Manager, or open the download page if that is unavailable.
-PDF, AI, SVG and DXF files convert without it.
+"Install Ghostscript.cmd" in this folder: it installs Ghostscript with
+Chocolatey if you have it, and otherwise opens Artifex's download page so you
+can run their installer. PDF, AI, SVG and DXF files convert without it.
 
 Windows may show a SmartScreen warning the first time because the program is
 not code-signed: click "More info" -> "Run anyway".
@@ -259,10 +292,10 @@ Artifex Software, Inc., licensed under the GNU Affero General Public License
 v3. AI8 Converter runs it as a child process over its command-line interface
 and contains no Ghostscript code.
 
-The last page of this installer can install it for you using the Windows
-Package Manager, or open Artifex's download page. Either way you obtain
-Ghostscript directly from Artifex, under Artifex's own licence, which is
-presented by their installer.
+This installer can fetch it for you as an optional step: it uses Chocolatey
+when that is present, and otherwise opens Artifex's download page. Either way
+you obtain Ghostscript directly from Artifex, under Artifex's own licence,
+which their installer presents.
 TXT
   } > "$LICENSE"
   SETUP="$OUT_DIR/$NAME-setup.exe"

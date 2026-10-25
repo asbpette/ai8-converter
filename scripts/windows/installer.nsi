@@ -141,31 +141,32 @@ Section "${APPNAME} (required)" SecMain
 SectionEnd
 
 ; Ghostscript is separate AGPL-3.0 software by Artifex and is NOT redistributed
-; here. This section only triggers an install from Artifex (via the Windows
-; Package Manager) or opens their download page, so the user receives it
-; directly from upstream, under the licence Artifex's own installer presents.
+; here. This section runs the "Install Ghostscript.cmd" helper that SecMain just
+; installed, so there is ONE implementation of "get Ghostscript" shared with the
+; portable zip. The helper uses Chocolatey when present and otherwise opens
+; Artifex's download page, so the user always receives Ghostscript from Artifex
+; under the licence Artifex's own installer presents.
 ; Pre-selected in .onInit when no Ghostscript is detected.
 Section /o "Install Ghostscript from Artifex (for EPS/PS files)" SecGs
-  DetailPrint "Requesting Ghostscript from Artifex via Windows Package Manager..."
-  nsExec::ExecToLog 'winget.exe install --exact --id ArtifexSoftware.GhostScript \
-    --accept-source-agreements --accept-package-agreements --disable-interactivity'
+  DetailPrint "Getting Ghostscript from Artifex..."
+  ; cmd.exe needs the whole command wrapped in its own pair of quotes when the
+  ; path contains spaces: cmd /c ""C:\dir with space\x.cmd" /noprompt"
+  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /c ""$INSTDIR\Install Ghostscript.cmd" /noprompt"'
   Pop $0
   ${If} $0 == 0
-    DetailPrint "Ghostscript installed."
+    DetailPrint "Ghostscript is ready."
   ${Else}
-    ; winget is a per-user MSIX app and often refuses to run from an elevated
-    ; installer, so falling back to the download page is the normal path, not
-    ; an edge case.
-    DetailPrint "Could not install automatically (winget exit code $0)."
-    DetailPrint "Opening Artifex's download page instead."
-    ExecShell "open" "https://ghostscript.com/releases/gsdnld.html"
+    ; The helper has already opened Artifex's download page by this point, so
+    ; only explain what happened; do not open a second browser window.
+    DetailPrint "Could not install it automatically (exit code $0)."
+    DetailPrint "Artifex's download page was opened in the browser."
     MessageBox MB_ICONINFORMATION|MB_OK \
-      "Ghostscript could not be installed automatically.$\n$\n\
+      "Ghostscript was not installed automatically.$\n$\n\
 Artifex's download page has been opened in your browser: download the 64-bit \
 Windows installer and run it.$\n$\n\
-You can also run $\"Install Ghostscript.cmd$\" from the AI8 Converter folder \
-at any time. Afterwards start AI8 Converter and press $\"Re-detect$\" on the \
-Ghostscript line." /SD IDOK
+You can retry at any time with $\"Install Ghostscript.cmd$\" in the AI8 \
+Converter folder. Afterwards start AI8 Converter and press $\"Re-detect$\" on \
+the Ghostscript line." /SD IDOK
   ${EndIf}
 SectionEnd
 

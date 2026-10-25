@@ -109,10 +109,10 @@ pub fn load_documents(input: &Path, opts: &ConvertOptions) -> Result<Vec<Documen
                 bail!(
                     "Ghostscript is required to read EPS/PostScript files but was not found. \
                      It is separate software from Artifex, so install it yourself: \
-                     macOS `brew install ghostscript`, Windows \
-                     `winget install ArtifexSoftware.GhostScript` or run \
-                     \"Install Ghostscript.cmd\" next to the application, Linux your \
-                     distribution's ghostscript package. Download page: \
+                     macOS `brew install ghostscript`, Windows run \
+                     \"Install Ghostscript.cmd\" next to the application (or \
+                     `choco install ghostscript`), Linux your distribution's \
+                     ghostscript package. Download page: \
                      https://ghostscript.com/releases/gsdnld.html"
                 );
             };

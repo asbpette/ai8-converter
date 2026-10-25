@@ -29,15 +29,16 @@ that you get it from Artifex under Artifex's own licence.
 | Platform | Install |
 | --- | --- |
 | macOS | `brew install ghostscript` (or MacPorts `port install ghostscript`) |
-| Windows | `winget install ArtifexSoftware.GhostScript`, `choco install ghostscript`, or the 64-bit installer from <https://ghostscript.com/releases/gsdnld.html> |
+| Windows | Run `Install Ghostscript.cmd` from the package, or `choco install ghostscript`, or the 64-bit installer from <https://ghostscript.com/releases/gsdnld.html>. Ghostscript is **not** in the Windows Package Manager: Artifex disabled the silent installer that winget requires. |
 | Linux | your distribution's `ghostscript` package |
 
 The app helps with this rather than shipping it: when none is detected, the
 Ghostscript status line offers a **Get Ghostscript…** button, and **Re-detect**
-picks it up afterwards without a restart. The Windows package also contains
+picks it up afterwards without a restart. The Windows package contains
 `Install Ghostscript.cmd`, and the Windows installer offers *Install
-Ghostscript from Artifex* as an optional step — both just ask the Windows
-Package Manager for Artifex's package, or open Artifex's download page.
+Ghostscript from Artifex* as an optional step that runs the same script. It
+installs through Chocolatey when that is present, and otherwise opens Artifex's
+download page; either way Ghostscript comes from Artifex, not from us.
 
 The app looks for Ghostscript in this order:
 
