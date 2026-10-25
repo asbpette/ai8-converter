@@ -7,29 +7,24 @@
 # Both exes get the icon (scripts/windows/ai8.ico) and a version resource.
 #
 # Requirements: rustup target x86_64-pc-windows-gnu, mingw-w64 (incl. windres),
-# 7zz (sevenzip), gh (GitHub CLI, for downloading Ghostscript), python3, zip,
-# makensis (NSIS 3, `brew install makensis` / `apt install nsis`).
+# zip, makensis (NSIS 3, `brew install makensis` / `apt install nsis`).
 #
-# Usage: scripts/package-windows.sh [--with-gs] [--gs-version 10080] [--out DIR]
-#                                   [--no-installer] [--no-exe-resource]
+# Usage: scripts/package-windows.sh [--out DIR] [--no-installer]
+#                                   [--no-exe-resource]
 #
-#   --with-gs  bundle an unmodified Ghostscript (AGPL-3.0) in gs/. OFF by
-#              default: redistributing it makes you an AGPL distributor and
-#              obliges you to supply the corresponding source for the exact
-#              version shipped. Published releases are built without it.
+# Ghostscript is never bundled. It is AGPL-3.0 software owned by Artifex, so
+# shipping it would make the distributor an AGPL distributor, obliged to supply
+# the corresponding source for the exact build. The package and the installer
+# instead offer to install it from Artifex, so the user receives it directly
+# from upstream under upstream's terms.
 set -euo pipefail
 
-GS_VERSION=10080
 OUT_DIR="$(pwd)/dist"
-WITH_GS=0
 WITH_INSTALLER=1
 WITH_RES=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --gs-version) GS_VERSION="$2"; shift 2 ;;
     --out) OUT_DIR="$2"; shift 2 ;;
-    --with-gs) WITH_GS=1; shift ;;
-    --no-gs) WITH_GS=0; shift ;;   # kept for compatibility; now the default
     --no-installer) WITH_INSTALLER=0; shift ;;
     --no-exe-resource) WITH_RES=0; shift ;;
     -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
@@ -38,8 +33,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# 7-Zip is "7zz" on macOS/Homebrew and newer Debian/Ubuntu, "7z" with p7zip.
-SEVENZIP="$(command -v 7zz || command -v 7z || true)"
 TARGET=x86_64-pc-windows-gnu
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | cut -d'"' -f2)"
 NAME="AI8-Converter-${VERSION}-windows-x64"
@@ -122,55 +115,53 @@ cp "$BIN/ai8conv.exe" "$PKG/ai8conv.exe"
 cp "$ROOT/LICENSE" "$PKG/LICENSE.txt"
 cp "$ROOT/THIRD-PARTY-NOTICES.txt" "$PKG/THIRD-PARTY-NOTICES.txt"
 
-if [[ $WITH_GS == 1 ]]; then
-  [[ -n "$SEVENZIP" ]] || { echo "error: 7-Zip (7zz or 7z) is required to unpack Ghostscript" >&2; exit 1; }
-  echo "==> Downloading Ghostscript gs${GS_VERSION}w64.exe"
-  gh release download "gs${GS_VERSION}" -R ArtifexSoftware/ghostpdl-downloads \
-    -p "gs${GS_VERSION}w64.exe" -D "$WORK" --clobber
-  mkdir -p "$WORK/gsx"
-  "$SEVENZIP" x -y -o"$WORK/gsx" "$WORK/gs${GS_VERSION}w64.exe" >/dev/null
+# Ghostscript is NOT shipped. It is AGPL-3.0 software owned by Artifex, and
+# redistributing it would make whoever ships this package an AGPL distributor,
+# obliged to supply the corresponding source for the exact build. Instead the
+# user installs it themselves from Artifex, so they receive it directly from
+# upstream under upstream's terms and we convey nothing.
+#
+# This helper is for people who took the plain .zip; the NSIS installer offers
+# the same thing as an optional step.
+cat > "$PKG/Install Ghostscript.cmd" <<'CMD'
+@echo off
+rem Installs Ghostscript, which AI8 Converter needs to read EPS and PS files.
+rem Ghostscript is separate software by Artifex Software, Inc., licensed under
+rem the GNU AGPL v3. It is obtained from Artifex, not from AI8 Converter.
+rem
+rem No parenthesised blocks below on purpose: %errorlevel% expands at parse
+rem time inside a block, so "if errorlevel N" + goto is the reliable form.
+setlocal
+echo AI8 Converter needs Ghostscript to read EPS and PS files.
+echo Ghostscript is separate software by Artifex Software, Inc. - GNU AGPL v3.
+echo.
 
-  mkdir -p "$PKG/gs/bin"
-  cp "$WORK/gsx/bin/gswin64c.exe" "$WORK/gsx/bin/gsdll64.dll" "$PKG/gs/bin/"
-  cp -R "$WORK/gsx/Resource" "$WORK/gsx/lib" "$WORK/gsx/iccprofiles" "$PKG/gs/"
-  cp "$WORK/gsx/doc/COPYING" "$PKG/gs/COPYING-Ghostscript-AGPL.txt"
+where winget >nul 2>&1
+if errorlevel 1 goto page
 
-  echo "==> Extracting the x64 MSVC runtime from Ghostscript's vcredist_x64.exe"
-  # The redistributable is a WiX Burn bundle; carve out its embedded cabinets
-  # and pick the x64 runtime cab containing msvcp140.dll.
-  python3 -I - "$WORK/gsx/vcredist_x64.exe" "$WORK/cabs" <<'PY'
-import os, struct, sys
-data = open(sys.argv[1], "rb").read()
-out = sys.argv[2]
-os.makedirs(out, exist_ok=True)
-i = n = 0
-while (i := data.find(b"MSCF\0\0\0\0", i)) >= 0:
-    size = struct.unpack("<I", data[i + 8:i + 12])[0]
-    if 0 < size <= len(data) - i:
-        open(os.path.join(out, f"c{n}.cab"), "wb").write(data[i:i + size])
-        n += 1
-    i += 4
-PY
-  found=0
-  for cab in "$WORK"/cabs/*.cab; do
-    d="${cab%.cab}"; mkdir -p "$d"; "$SEVENZIP" x -y -o"$d" "$cab" >/dev/null || continue
-    for inner in "$d"/*; do
-      [[ -f "$inner" ]] || continue
-      listing="$("$SEVENZIP" l "$inner" 2>/dev/null || true)"
-      if [[ "$listing" == *msvcp140.dll* ]]; then
-        rt="$inner.x"; mkdir -p "$rt"; "$SEVENZIP" x -y -o"$rt" "$inner" >/dev/null
-        if file "$rt/msvcp140.dll" | grep -q "x86-64"; then
-          cp "$rt"/msvcp140.dll "$rt"/vcruntime140.dll "$rt"/vcruntime140_1.dll "$PKG/gs/bin/"
-          found=1; break 2
-        fi
-      fi
-    done
-  done
-  if [[ $found == 0 ]]; then
-    echo "warning: could not extract the MSVC runtime; Ghostscript may need the" >&2
-    echo "         Visual C++ Redistributable installed on the target PC." >&2
-  fi
-fi
+echo Installing with the Windows Package Manager...
+winget install --exact --id ArtifexSoftware.GhostScript --accept-source-agreements --accept-package-agreements
+if errorlevel 1 goto page
+
+echo.
+echo Done. Start AI8 Converter, or press "Re-detect" on its Ghostscript
+echo line, and it will be picked up.
+pause
+exit /b 0
+
+:page
+echo.
+echo Could not install it automatically. Opening Artifex's download page.
+start "" https://ghostscript.com/releases/gsdnld.html
+echo.
+echo Download the 64-bit Ghostscript installer for Windows and run it, then
+echo start AI8 Converter or press "Re-detect" on its Ghostscript line.
+pause
+exit /b 1
+CMD
+# Windows line endings, or cmd.exe mis-parses the file.
+sed -i '' 's/$/\r/' "$PKG/Install Ghostscript.cmd" 2>/dev/null \
+  || sed -i 's/$/\r/' "$PKG/Install Ghostscript.cmd"
 
 cat > "$PKG/README.txt" <<'TXT'
 AI8 Converter
@@ -180,13 +171,20 @@ Converts EPS, PS, PDF, AI SVG and DXF vector files to Adobe Illustrator 8 (.ai).
 
 How to use
 ----------
-1. Unzip this folder anywhere (keep the "gs" folder next to the program).
+1. Unzip this folder anywhere.
 2. Double-click "AI8 Converter.exe".
 3. Drag files onto the window (or click "Add files..."), then click "Convert".
    The .ai files are written next to the originals unless you choose an
    output folder.
 
 Command line:  ai8conv.exe --help
+
+EPS and PS files
+----------------
+Reading EPS and PS needs Ghostscript, which is not included. Run
+"Install Ghostscript.cmd" in this folder and it will install it with the
+Windows Package Manager, or open the download page if that is unavailable.
+PDF, AI, SVG and DXF files convert without it.
 
 Windows may show a SmartScreen warning the first time because the program is
 not code-signed: click "More info" -> "Run anyway".
@@ -199,16 +197,14 @@ AI8 Converter is free and open source under the MIT Licence; see LICENSE.txt.
 Copyright (c) 2026 Asbjorn Pettersen. Notices for the open source libraries it
 is built with are in THIRD-PARTY-NOTICES.txt.
 
-Ghostscript (in the "gs" folder) is a SEPARATE program, used to read
-EPS/PostScript files. AI8 Converter runs it as a child process and contains no
-Ghostscript code. It is licensed under the GNU Affero General Public License
-v3; see gs\COPYING-Ghostscript-AGPL.txt. The complete corresponding source for
-the exact version bundled here is the official release it was taken from:
-https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/tag/gs@GSTAG@
+Ghostscript is NOT included and is not part of AI8 Converter. It is separate
+software by Artifex Software, Inc., licensed under the GNU Affero General
+Public License v3, and you obtain it directly from Artifex, under their
+licence. AI8 Converter runs it as a child process over its command line and
+contains no Ghostscript code.
+Download page: https://ghostscript.com/releases/gsdnld.html
 TXT
 # Windows line endings for Notepad.
-sed -i '' "s/@GSTAG@/$GS_VERSION/g" "$PKG/README.txt" 2>/dev/null \
-  || sed -i "s/@GSTAG@/$GS_VERSION/g" "$PKG/README.txt"
 sed -i '' 's/$/\r/' "$PKG/README.txt" 2>/dev/null || sed -i 's/$/\r/' "$PKG/README.txt"
 
 mkdir -p "$OUT_DIR"
@@ -253,30 +249,22 @@ AI8 Converter is free and open source software under the MIT Licence:
 
 Notices for the open source libraries AI8 Converter is built with are
 installed as THIRD-PARTY-NOTICES.txt.
-TXT
-    if [[ $WITH_GS == 1 ]]; then
-      cat <<'TXT'
 
 ------------------------------------------------------------------------
-Ghostscript
+About Ghostscript
 ------------------------------------------------------------------------
-The following applies ONLY to the files in the "gs" subfolder, not to AI8
-Converter itself, which is MIT licensed as stated above.
+Reading EPS and PostScript files needs Ghostscript, which is NOT part of AI8
+Converter and is not installed by this installer. It is separate software by
+Artifex Software, Inc., licensed under the GNU Affero General Public License
+v3. AI8 Converter runs it as a child process over its command-line interface
+and contains no Ghostscript code.
 
-AI8 Converter installs an unmodified copy of Artifex Ghostscript in the "gs"
-subfolder. It is used to read EPS/PostScript files and runs as a separate
-program, invoked over its command-line interface; AI8 Converter contains no
-Ghostscript code. Ghostscript is licensed under the GNU Affero General Public
-License v3, reproduced below. The complete corresponding source for the exact
-version installed here is the official release it was taken from:
-https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/tag/gs@GSTAG@
-
+The last page of this installer can install it for you using the Windows
+Package Manager, or open Artifex's download page. Either way you obtain
+Ghostscript directly from Artifex, under Artifex's own licence, which is
+presented by their installer.
 TXT
-      cat "$PKG/gs/COPYING-Ghostscript-AGPL.txt"
-    fi
   } > "$LICENSE"
-  sed -i '' "s/@GSTAG@/$GS_VERSION/g" "$LICENSE" 2>/dev/null \
-    || sed -i "s/@GSTAG@/$GS_VERSION/g" "$LICENSE"
   SETUP="$OUT_DIR/$NAME-setup.exe"
   rm -f "$SETUP"
   makensis -V2 -INPUTCHARSET UTF8 \

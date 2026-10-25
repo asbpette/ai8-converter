@@ -265,6 +265,53 @@ fn convert_guarded(path: &Path, opts: &ConvertOptions, format: OutputFormat) -> 
             format!("internal error: {msg}")
         })
         .and_then(|r| r.map_err(|e| format!("{e:#}")))
+
+/// Artifex's Ghostscript download page.
+const GS_DOWNLOAD_URL: &str = "https://ghostscript.com/releases/gsdnld.html";
+
+/// The one-liner that installs Ghostscript on this platform.
+fn gs_install_command() -> &'static str {
+    if cfg!(windows) {
+        "winget install ArtifexSoftware.GhostScript"
+    } else if cfg!(target_os = "macos") {
+        "brew install ghostscript"
+    } else {
+        "install your distribution's ghostscript package"
+    }
+}
+
+/// Help the user obtain Ghostscript. It is separate AGPL-3.0 software owned by
+/// Artifex and is never shipped with AI8 Converter, so this only ever hands the
+/// job to Artifex or to the system package manager: on Windows the
+/// "Install Ghostscript.cmd" helper beside the executable, otherwise Artifex's
+/// own download page.
+fn get_ghostscript() {
+    #[cfg(windows)]
+    if let Some(helper) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("Install Ghostscript.cmd")))
+        .filter(|p| p.is_file())
+    {
+        // `start ""` so the console window belongs to cmd, not to this app.
+        if std::process::Command::new("cmd")
+            .args(["/c", "start", ""])
+            .arg(&helper)
+            .spawn()
+            .is_ok()
+        {
+            return;
+        }
+    }
+    let cmd = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    if let Err(e) = std::process::Command::new(cmd).arg(GS_DOWNLOAD_URL).spawn() {
+        eprintln!("could not open {GS_DOWNLOAD_URL}: {e}");
+    }
 }
 
 fn spawn_worker(jobs: Vec<(u64, PathBuf)>, opts: ConvertOptions, tx: Sender<WorkerMsg>, ctx: egui::Context) {
@@ -671,20 +718,33 @@ impl App {
                 }
                 GsStatus::NotFound => {
                     ui.label(egui::RichText::new("not found").color(egui::Color32::from_rgb(210, 120, 0)));
-                    let hint = if cfg!(windows) {
-                        "EPS/PS needs Ghostscript: install from ghostscript.com"
-                    } else if cfg!(target_os = "macos") {
-                        "EPS/PS needs Ghostscript: brew install ghostscript"
-                    } else {
-                        "EPS/PS needs Ghostscript: install the ghostscript package"
-                    };
-                    ui.label(egui::RichText::new(hint).small());
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "EPS/PS needs Ghostscript: {}",
+                            gs_install_command()
+                        ))
+                        .small(),
+                    );
                 }
                 GsStatus::Invalid { path, error } => {
                     ui.label(egui::RichText::new("not usable").color(egui::Color32::from_rgb(200, 50, 50)))
                         .on_hover_text(error.as_str());
                     ui.label(egui::RichText::new(path.display().to_string()).small());
                 }
+            }
+            // Only offered when it is missing: Ghostscript is not ours to ship,
+            // so this sends the user to Artifex rather than installing anything.
+            if matches!(self.gs, GsStatus::NotFound | GsStatus::Invalid { .. })
+                && ui
+                    .small_button("Get Ghostscript…")
+                    .on_hover_text(
+                        "Ghostscript is separate software by Artifex Software, Inc.,\n\
+                         licensed under the GNU AGPL v3. This opens their installer\n\
+                         or download page; AI8 Converter does not include it.",
+                    )
+                    .clicked()
+            {
+                get_ghostscript();
             }
             if ui.small_button("Browse…").clicked() {
                 let mut dlg = rfd::FileDialog::new().set_title("Locate the Ghostscript executable");

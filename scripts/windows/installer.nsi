@@ -5,8 +5,9 @@
 ;   makensis -DVERSION=0.1.0 -DVERSION4=0.1.0.0 -DSRCDIR=<staged folder> \
 ;            -DLICENSEFILE=<notice+AGPL txt> -DOUTFILE=<setup.exe> installer.nsi
 ;
-; Installs exactly the staged portable package (both exes, gs\, README.txt)
-; into "Program Files\AI8 Converter" for all users, adds Start-menu and
+; Installs exactly the staged portable package (both exes, README.txt, the
+; licence files and "Install Ghostscript.cmd") into "Program Files\AI8
+; Converter" for all users, adds Start-menu and
 ; (optional) desktop shortcuts and registers an uninstaller in
 ; "Apps & features" / "Add or remove programs".
 ;
@@ -44,6 +45,7 @@ RequestExecutionLevel admin
 !include "x64.nsh"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
+!include "Sections.nsh"   ; SF_SELECTED, used by .onInit
 
 Name "${APPNAME}"
 OutFile "${OUTFILE}"
@@ -100,23 +102,12 @@ VIAddVersionKey "LegalCopyright" "${COPYRIGHT}"
 
 !insertmacro MUI_LANGUAGE "English"
 
-; ---- Init ----
-Function .onInit
-  ${IfNot} ${RunningX64}
-    MessageBox MB_ICONSTOP|MB_OK "${APPNAME} requires 64-bit Windows (x64)." /SD IDOK
-    Abort
-  ${EndIf}
-  SetRegView 64
-  SetShellVarContext all
-FunctionEnd
-
 ; Explorer caches icons by file path, so after an upgrade the Start menu,
 ; desktop and taskbar would keep showing the previous version's icon.
 ; SHCNE_ASSOCCHANGED (0x08000000) makes the shell rebuild its icon cache.
 Function .onInstSuccess
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 FunctionEnd
-
 Function un.onInit
   SetRegView 64
   SetShellVarContext all
@@ -126,7 +117,8 @@ FunctionEnd
 Section "${APPNAME} (required)" SecMain
   SectionIn RO
   SetOutPath "$INSTDIR"
-  ; Remove a previous Ghostscript copy first so an upgrade never mixes versions.
+  ; Older versions bundled Ghostscript in gs\. Remove it on upgrade: it is no
+  ; longer shipped, and a stale copy would be found before the user's own.
   RMDir /r "$INSTDIR\gs"
   File /r "${SRCDIR}/*.*"
 
@@ -148,9 +140,59 @@ Section "${APPNAME} (required)" SecMain
   WriteRegDWORD HKLM "${UNINSTKEY}" "EstimatedSize" "$0"
 SectionEnd
 
+; Ghostscript is separate AGPL-3.0 software by Artifex and is NOT redistributed
+; here. This section only triggers an install from Artifex (via the Windows
+; Package Manager) or opens their download page, so the user receives it
+; directly from upstream, under the licence Artifex's own installer presents.
+; Pre-selected in .onInit when no Ghostscript is detected.
+Section /o "Install Ghostscript from Artifex (for EPS/PS files)" SecGs
+  DetailPrint "Requesting Ghostscript from Artifex via Windows Package Manager..."
+  nsExec::ExecToLog 'winget.exe install --exact --id ArtifexSoftware.GhostScript \
+    --accept-source-agreements --accept-package-agreements --disable-interactivity'
+  Pop $0
+  ${If} $0 == 0
+    DetailPrint "Ghostscript installed."
+  ${Else}
+    ; winget is a per-user MSIX app and often refuses to run from an elevated
+    ; installer, so falling back to the download page is the normal path, not
+    ; an edge case.
+    DetailPrint "Could not install automatically (winget exit code $0)."
+    DetailPrint "Opening Artifex's download page instead."
+    ExecShell "open" "https://ghostscript.com/releases/gsdnld.html"
+    MessageBox MB_ICONINFORMATION|MB_OK \
+      "Ghostscript could not be installed automatically.$\n$\n\
+Artifex's download page has been opened in your browser: download the 64-bit \
+Windows installer and run it.$\n$\n\
+You can also run $\"Install Ghostscript.cmd$\" from the AI8 Converter folder \
+at any time. Afterwards start AI8 Converter and press $\"Re-detect$\" on the \
+Ghostscript line." /SD IDOK
+  ${EndIf}
+SectionEnd
+
 Section "Desktop shortcut" SecDesktop
   CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${APPEXE}" "" "$INSTDIR\${APPEXE}" 0
 SectionEnd
+
+; ---- Init ----
+Function .onInit
+  ${IfNot} ${RunningX64}
+    MessageBox MB_ICONSTOP|MB_OK "${APPNAME} requires 64-bit Windows (x64)." /SD IDOK
+    Abort
+  ${EndIf}
+  SetRegView 64
+  SetShellVarContext all
+
+  ; Offer the Ghostscript step by default only if nothing is installed yet.
+  ; Mirrors ghostscript::standard_locations() in src/ghostscript.rs.
+  ClearErrors
+  FindFirst $0 $1 "$PROGRAMFILES64\gs\gs*"
+  FindClose $0
+  ${If} $1 == ""
+    SectionGetFlags ${SecGs} $2
+    IntOp $2 $2 | ${SF_SELECTED}
+    SectionSetFlags ${SecGs} $2
+  ${EndIf}
+FunctionEnd
 
 Section "Uninstall"
   Delete "$SMPROGRAMS\${APPNAME}.lnk"
@@ -163,6 +205,7 @@ Section "Uninstall"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\THIRD-PARTY-NOTICES.txt"
+  Delete "$INSTDIR\Install Ghostscript.cmd"
   RMDir /r "$INSTDIR\gs"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"

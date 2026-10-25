@@ -108,8 +108,12 @@ pub fn load_documents(input: &Path, opts: &ConvertOptions) -> Result<Vec<Documen
             let Some(gs) = gs_path(opts) else {
                 bail!(
                     "Ghostscript is required to read EPS/PostScript files but was not found. \
-                     Install it (macOS: `brew install ghostscript`; Windows: ghostscript.com) \
-                     or place it next to this application."
+                     It is separate software from Artifex, so install it yourself: \
+                     macOS `brew install ghostscript`, Windows \
+                     `winget install ArtifexSoftware.GhostScript` or run \
+                     \"Install Ghostscript.cmd\" next to the application, Linux your \
+                     distribution's ghostscript package. Download page: \
+                     https://ghostscript.com/releases/gsdnld.html"
                 );
             };
             let pdf_bytes = ghostscript::to_pdf(&gs, input, true, true)?;

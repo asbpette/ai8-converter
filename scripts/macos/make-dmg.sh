@@ -40,8 +40,10 @@ if [ -z "$ARCH" ]; then
         *) ARCH="$ARCHS" ;;
     esac
 fi
+# No bundled Ghostscript is the normal case for a release: it is AGPL software
+# owned by Artifex and the user installs it themselves. Only note it.
 if [ ! -x "$APP/Contents/Resources/gs/bin/gs" ]; then
-    echo "warning: $APP has no bundled Ghostscript (EPS/PS input will need one installed)" >&2
+    echo "note: no bundled Ghostscript; EPS/PS input needs one installed" >&2
 fi
 
 mkdir -p "$OUT"

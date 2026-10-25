@@ -6,8 +6,14 @@
 #                 (needs: rustup target add aarch64-apple-darwin x86_64-apple-darwin)
 #   --with-gs     build (or reuse the cached build of) a self-contained Ghostscript
 #                 with scripts/macos/build-ghostscript.sh and bundle it at
-#                 Contents/Resources/gs, so the app needs nothing installed
+#                 Contents/Resources/gs, so the app needs nothing installed.
+#                 OFF by default, and not used for published releases:
+#                 Ghostscript is AGPL-3.0 software owned by Artifex, so anyone
+#                 redistributing a bundled build becomes an AGPL distributor and
+#                 must supply the corresponding source for that exact build.
+#                 Fine for your own machine or an offline/internal deployment.
 #   --gs-dir DIR  bundle an existing self-contained Ghostscript (DIR/bin/gs) instead
+#                 (same AGPL caveat as --with-gs)
 #   --dmg         also create dist/AI8-Converter-<version>-macos-<arch>.dmg
 #
 # Output: target/release/bundle/AI8 Converter.app (and a .zip next to it).

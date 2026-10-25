@@ -69,9 +69,11 @@ jobs:
         with:
           path: target/ghostscript/gs-${{ steps.gs.outputs.version }}-macos-universal
           key: gs-${{ steps.gs.outputs.version }}-macos-universal-${{ hashFiles('scripts/macos/build-ghostscript.sh') }}
-      - name: Build app bundle + DMG (universal, Ghostscript bundled)
-        run: scripts/bundle-macos.sh --universal --with-gs --dmg
-      - name: Check bundled Ghostscript
+      # Verification only, NOT uploaded: keeps scripts/macos/build-ghostscript.sh
+      # and the opt-in --with-gs path working without publishing AGPL software.
+      - name: Verify the opt-in Ghostscript bundle still builds
+        run: scripts/bundle-macos.sh --universal --with-gs
+      - name: Check the bundled Ghostscript
         run: |
           APP="target/release/bundle/AI8 Converter.app"
           otool -L "$APP/Contents/Resources/gs/bin/gs"
@@ -79,6 +81,9 @@ jobs:
           env -i PATH=/usr/bin:/bin "$APP/Contents/Resources/gs/bin/gs" -q -dSAFER -dBATCH -dNOPAUSE \
             -dNoOutputFonts -dEPSCrop -sDEVICE=pdfwrite -sOutputFile="$RUNNER_TEMP/t.pdf" tests/fixtures/eps/text.eps
           env -i PATH=/usr/bin:/bin HOME="$HOME" "$APP/Contents/MacOS/ai8conv" -o "$RUNNER_TEMP" tests/fixtures/eps/shapes.eps
+      # The published artifact: no Ghostscript, so no AGPL obligations.
+      - name: Build app bundle + DMG for release (no Ghostscript)
+        run: scripts/bundle-macos.sh --universal --dmg
       - uses: actions/upload-artifact@v4
         with:
           name: AI8-Converter-macOS
@@ -87,7 +92,8 @@ jobs:
             target/release/bundle/AI8-Converter-macOS.zip
 
   # Portable zip + NSIS installer, cross-compiled exactly like a local
-  # `scripts/package-windows.sh` run (bundles Ghostscript + MSVC runtime DLLs).
+  # `scripts/package-windows.sh` run. Ghostscript is not bundled: the package
+  # and the installer offer to install it from Artifex instead.
   windows-package:
     runs-on: ubuntu-24.04
     steps:
@@ -97,11 +103,9 @@ jobs:
           targets: x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2
       - name: Install cross tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 nsis 7zip zip file
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 nsis zip file
       - name: Package (zip + installer)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/package-windows.sh --with-gs --out dist
+        run: scripts/package-windows.sh --out dist
       - uses: actions/upload-artifact@v4
         with:
           name: AI8-Converter-Windows-x64-package

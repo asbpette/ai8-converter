@@ -31,6 +31,16 @@ Open it once like this:
 
 After that the app opens normally with a double-click.
 
+EPS and PS files
+----------------
+Reading EPS and PS needs Ghostscript, which is not included:
+
+    brew install ghostscript
+
+or download it from https://ghostscript.com/releases/gsdnld.html . In the app,
+the Ghostscript line has a "Get Ghostscript..." button and a "Re-detect"
+button. PDF, AI, SVG and DXF files convert without it.
+
 Licenses
 --------
 AI8 Converter is free and open source under the MIT Licence.
@@ -38,9 +48,12 @@ Copyright (c) 2026 Asbjorn Pettersen. The licence text is inside the app at
 AI8 Converter.app/Contents/Resources/LICENSE.txt, and notices for the open
 source libraries it is built with are in THIRD-PARTY-NOTICES.txt beside it.
 
-If this build bundles Ghostscript, that is a SEPARATE program: AI8 Converter
-runs it as a child process and contains no Ghostscript code. It is licensed
-under the GNU Affero General Public License v3. Its licence text, the exact
-upstream version and its source download location are inside the app:
+Ghostscript is not included. It is separate software by Artifex Software,
+Inc., licensed under the GNU Affero General Public License v3, which you
+install yourself and obtain directly from Artifex. AI8 Converter runs it as a
+child process and contains no Ghostscript code.
+
+If a build does bundle it (the opt-in --with-gs packaging flag), its licence
+text, exact upstream version and source download location are inside the app at
 AI8 Converter.app/Contents/Resources/gs/ (COPYING, LICENSE, BUILDINFO.txt),
-with a summary in GHOSTSCRIPT-NOTICE.txt.
+summarised in GHOSTSCRIPT-NOTICE.txt.

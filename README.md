@@ -21,16 +21,31 @@ PDF and SVG files don't need it, but when Ghostscript is installed it's also
 used to turn text in PDF files into outlines. You can switch that off in the
 app, or with `--no-outline-text` on the command line.
 
+Ghostscript is **not bundled** and is not part of AI8 Converter. It is separate
+software by Artifex Software, Inc. under the [GNU AGPL
+v3](https://www.gnu.org/licenses/agpl-3.0.html), and you install it yourself so
+that you get it from Artifex under Artifex's own licence.
+
 | Platform | Install |
 | --- | --- |
 | macOS | `brew install ghostscript` (or MacPorts `port install ghostscript`) |
-| Windows | Download the 64-bit installer from <https://ghostscript.com/releases/gsdnld.html>, or run `choco install ghostscript` |
+| Windows | `winget install ArtifexSoftware.GhostScript`, `choco install ghostscript`, or the 64-bit installer from <https://ghostscript.com/releases/gsdnld.html> |
+| Linux | your distribution's `ghostscript` package |
+
+The app helps with this rather than shipping it: when none is detected, the
+Ghostscript status line offers a **Get Ghostscript…** button, and **Re-detect**
+picks it up afterwards without a restart. The Windows package also contains
+`Install Ghostscript.cmd`, and the Windows installer offers *Install
+Ghostscript from Artifex* as an optional step — both just ask the Windows
+Package Manager for Artifex's package, or open Artifex's download page.
 
 The app looks for Ghostscript in this order:
 
 1. The `AI8_GHOSTSCRIPT` environment variable (full path to the executable)
-2. A copy bundled with the app: `<app folder>/gs/bin/gswin64c.exe` (Windows),
-   `<app folder>/gs/bin/gs`, or `AI8 Converter.app/Contents/Resources/gs/bin/gs` (macOS)
+2. A copy placed next to the app: `<app folder>/gs/bin/gswin64c.exe` (Windows),
+   `<app folder>/gs/bin/gs`, or `AI8 Converter.app/Contents/Resources/gs/bin/gs`
+   (macOS). Released builds never contain one; this covers a copy you put there
+   yourself, or an opt-in `--with-gs` build of your own.
 3. `PATH` (`gswin64c.exe`, `gswin32c.exe` or `gs.exe` on Windows; `gs` elsewhere)
 4. Standard install locations: `C:\Program Files\gs\gs*\bin\gswin64c.exe` (newest
    version wins) on Windows, and `/opt/homebrew/bin/gs`, `/usr/local/bin/gs` or
@@ -179,7 +194,7 @@ and the zipped macOS `.app` as artifacts.
 - The output is a plain AI8 file: one layer, and no embedded preview or procsets. Illustrator and AI-importing applications read it directly, but sending it straight to a PostScript printer won't work, and macOS Preview can't open it (use **Preview** or **Open as PDF** in the app).
 - DXF: text (TEXT, MTEXT, attribute and dimension text, SHX fonts) is not converted; 3D entities are projected flat (top view); hatch patterns become native pattern swatches when their line families repeat on a common lattice (ANSI31, crosshatches, bricks, …), otherwise clipped dashed lines; hatch gradients become linear or radial gradients. Drawings without units are taken as millimetres.
 - In expand mode, a pattern stroke whose outline would have more than 5,000 segments (for example a very long dashed line), and patterns nested more than 4 deep, get a flat colour; a warning is shown.
-- Ghostscript is not bundled by default. Mind its AGPL licence if you redistribute it with the app.
+- Ghostscript is never bundled in a release and must be installed separately for EPS/PS input; the app offers to install it for you. Mind its AGPL licence if you build a bundled copy and redistribute that.
 
 ## Licence
 
@@ -199,15 +214,20 @@ which is regenerated with `scripts/gen-third-party-notices.sh` and ships in the
 Windows and macOS packages.
 
 Ghostscript is a **separate program** under the
-[GNU AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html). AI8 Converter runs
-it as a child process over its command-line interface and contains no
-Ghostscript code, so the two are an aggregate, not a combined work, and the MIT
-licence above is unaffected. Published releases do not bundle it — install it
-yourself as described under [Ghostscript](#ghostscript). The packaging scripts
-can bundle an unmodified copy with `--with-gs` (macOS) or `--with-gs`
-(Windows); if you redistribute such a build, you take on the AGPL obligations
-for the Ghostscript part, including providing the corresponding source for the
-exact version you ship.
+[GNU AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html), owned by Artifex
+Software, Inc. AI8 Converter runs it as a child process over its command-line
+interface and contains no Ghostscript code, so the two are an aggregate rather
+than a combined work and the MIT licence above is unaffected.
+
+**No release bundles it, and the Windows packaging cannot.** Users install it
+themselves, receiving it from Artifex under Artifex's licence, which keeps this
+project free of AGPL redistribution duties. The macOS script can still build a
+self-contained copy into the app with the opt-in `--with-gs` flag, for your own
+machine or an offline deployment; redistributing such a build makes *you* an
+AGPL distributor, obliged to supply the corresponding source for that exact
+build. Linking Ghostscript as a library instead of running it as a process
+would make the result a combined work and bring the whole program under the
+AGPL, so AI8 Converter never does that.
 
 ### Trademarks
 
