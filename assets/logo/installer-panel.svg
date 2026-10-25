@@ -32,5 +32,5 @@
   <text x="82" y="236" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-weight="600" font-size="15" fill="#FFFFFF">AI8 Converter</text>
   <text x="82" y="252" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="8.5" fill="#FFFFFF" fill-opacity="0.65" letter-spacing="0.3">Vector files to Illustrator 8</text>
   <text x="82" y="292" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="7.4" fill="#FFFFFF" fill-opacity="0.55">Copyright (c) Asbjørn Pettersen.</text>
-  <text x="82" y="302" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="7.4" fill="#FFFFFF" fill-opacity="0.55">All rights reserved.</text>
+  <text x="82" y="302" text-anchor="middle" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="7.4" fill="#FFFFFF" fill-opacity="0.55">Free software under the MIT Licence.</text>
 </svg>

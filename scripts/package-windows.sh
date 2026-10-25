@@ -76,7 +76,7 @@ BEGIN
       VALUE "FileDescription", "$2"
       VALUE "FileVersion", "$VERSION"
       VALUE "InternalName", "$3"
-      VALUE "LegalCopyright", "Copyright (c) Asbjørn Pettersen. All rights reserved."
+      VALUE "LegalCopyright", "Copyright (c) 2026 Asbjorn Pettersen. MIT Licensed."
       VALUE "OriginalFilename", "$3"
       VALUE "ProductName", "AI8 Converter"
       VALUE "ProductVersion", "$VERSION"

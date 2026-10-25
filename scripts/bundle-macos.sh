@@ -137,7 +137,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>NSHumanReadableCopyright</key><string>Copyright (c) Asbjørn Pettersen. All rights reserved.</string>
+    <key>NSHumanReadableCopyright</key><string>Copyright (c) 2026 Asbjørn Pettersen. MIT Licensed.</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
