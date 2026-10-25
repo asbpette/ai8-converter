@@ -37,9 +37,13 @@ Reading EPS and PS needs Ghostscript, which is not included:
 
     brew install ghostscript
 
-or download it from https://ghostscript.com/releases/gsdnld.html . In the app,
-the Ghostscript line has a "Get Ghostscript..." button and a "Re-detect"
-button. PDF, AI, SVG and DXF files convert without it.
+Artifex publish no ready-made macOS build, so a package manager (Homebrew or
+MacPorts) is the way to get it. "Installing Ghostscript.html" on this disk
+image has the steps and the links, and the same guide is inside the app behind
+the "How to install..." button on the Ghostscript line.
+
+AI8 Converter notices Ghostscript on its own once it is installed; there is
+also a "Re-detect" button. PDF, AI, SVG and DXF files convert without it.
 
 Licenses
 --------

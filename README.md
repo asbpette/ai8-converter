@@ -33,8 +33,12 @@ that you get it from Artifex under Artifex's own licence.
 | Linux | your distribution's `ghostscript` package |
 
 The app helps with this rather than shipping it: when none is detected, the
-Ghostscript status line offers a **Get Ghostscript…** button, and **Re-detect**
-picks it up afterwards without a restart. The Windows package contains
+Ghostscript status line offers a **How to install…** button, which opens the
+short guide in [docs/installing-ghostscript.html](docs/installing-ghostscript.html)
+that ships with both packages. The app never installs anything itself and never
+opens a terminal — a console window appearing out of a GUI application and
+running an installer is indistinguishable from malware. It does notice a new
+install on its own within a couple of seconds, and **Re-detect** forces a check. The Windows package contains
 `Install Ghostscript.cmd`, and the Windows installer offers *Install
 Ghostscript from Artifex* as an optional step that runs the same script. It
 downloads Artifex's own installer, verifies their Authenticode signature on it

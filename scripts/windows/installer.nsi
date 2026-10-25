@@ -87,7 +87,11 @@ VIAddVersionKey "LegalCopyright" "${COPYRIGHT}"
 !define MUI_FINISHPAGE_NOAUTOCLOSE
 ; No "Run now" checkbox on purpose: the installer runs elevated, and an
 ; elevated app cannot receive drag-and-drop from a normal Explorer window.
-!define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\README.txt"
+; Offer the Ghostscript guide once the install is finished, rather than having
+; the app or this installer run anything on the user's behalf. README.txt sits
+; in the install folder for anyone who wants it.
+!define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\Installing Ghostscript.html"
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Read how to install Ghostscript (needed for EPS and PS files)"
 !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
 
 !insertmacro MUI_PAGE_WELCOME
@@ -208,6 +212,7 @@ Section "Uninstall"
   Delete "$INSTDIR\THIRD-PARTY-NOTICES.txt"
   Delete "$INSTDIR\Install Ghostscript.cmd"
   Delete "$INSTDIR\Install Ghostscript.ps1"
+  Delete "$INSTDIR\Installing Ghostscript.html"
   RMDir /r "$INSTDIR\gs"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"

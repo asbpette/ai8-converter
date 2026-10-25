@@ -270,12 +270,12 @@ fn convert_guarded(path: &Path, opts: &ConvertOptions, format: OutputFormat) -> 
 /// Artifex's Ghostscript download page.
 const GS_DOWNLOAD_URL: &str = "https://ghostscript.com/releases/gsdnld.html";
 
-/// How to install Ghostscript on this platform. Windows has no winget package
-/// (Artifex disabled the silent installer winget needs), so point at the
-/// helper script, which falls back to Artifex's download page.
+/// One short line on how to get Ghostscript here. The full story, including
+/// the fact that Artifex publish no macOS build, is in the guide behind the
+/// "How to install…" button.
 fn gs_install_command() -> &'static str {
     if cfg!(windows) {
-        "run \"Install Ghostscript.cmd\", or get it from ghostscript.com"
+        "install it from ghostscript.com"
     } else if cfg!(target_os = "macos") {
         "brew install ghostscript"
     } else {
@@ -283,37 +283,44 @@ fn gs_install_command() -> &'static str {
     }
 }
 
-/// Help the user obtain Ghostscript. It is separate AGPL-3.0 software owned by
-/// Artifex and is never shipped with AI8 Converter, so this only ever hands the
-/// job to Artifex or to the system package manager: on Windows the
-/// "Install Ghostscript.cmd" helper beside the executable, otherwise Artifex's
-/// own download page. Nothing here runs unless the user asks for it, and the
-/// button is only offered while Ghostscript is missing.
-fn get_ghostscript() {
-    #[cfg(windows)]
-    if let Some(helper) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join("Install Ghostscript.cmd")))
-        .filter(|p| p.is_file())
-    {
-        // `start ""` so the console window belongs to cmd, not to this app.
-        if std::process::Command::new("cmd")
-            .args(["/c", "start", ""])
-            .arg(&helper)
-            .spawn()
-            .is_ok()
-        {
-            return;
-        }
+/// File name of the installation guide shipped with the app.
+const GS_GUIDE_FILE: &str = "Installing Ghostscript.html";
+
+/// The bundled guide: beside the executable, or in the macOS bundle's
+/// `Contents/Resources`.
+fn ghostscript_guide() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let mut candidates = vec![dir.join(GS_GUIDE_FILE)];
+    // Contents/MacOS/<exe> -> Contents/Resources/<guide>
+    if let Some(contents) = dir.parent() {
+        candidates.push(contents.join("Resources").join(GS_GUIDE_FILE));
     }
-    let cmd = if cfg!(target_os = "macos") {
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Show the user how to install Ghostscript.
+///
+/// This deliberately only opens a document. The app never installs anything
+/// itself and never starts a terminal: a console window appearing out of a GUI
+/// application and running an installer is indistinguishable from malware, and
+/// asking the user to trust that is worse than asking them to read three lines
+/// and run the command themselves.
+fn show_ghostscript_guide() {
+    if let Some(guide) = ghostscript_guide() {
+        open_path(&guide);
+        return;
+    }
+    // Unpackaged build: Artifex's page is the next best thing. It has no macOS
+    // download, which is exactly why the guide exists.
+    let opener = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(windows) {
         "explorer"
     } else {
         "xdg-open"
     };
-    if let Err(e) = std::process::Command::new(cmd).arg(GS_DOWNLOAD_URL).spawn() {
+    if let Err(e) = std::process::Command::new(opener).arg(GS_DOWNLOAD_URL).spawn() {
         eprintln!("could not open {GS_DOWNLOAD_URL}: {e}");
     }
 }
@@ -748,13 +755,6 @@ impl App {
                         ))
                         .small(),
                     );
-                    // The only place the download page is offered, and only
-                    // while it really is missing.
-                    ui.hyperlink_to(
-                        egui::RichText::new("download page").small(),
-                        GS_DOWNLOAD_URL,
-                    )
-                    .on_hover_text(GS_DOWNLOAD_URL);
                 }
                 GsStatus::Invalid { path, error } => {
                     ui.label(egui::RichText::new("not usable").color(egui::Color32::from_rgb(200, 50, 50)))
@@ -762,19 +762,19 @@ impl App {
                     ui.label(egui::RichText::new(path.display().to_string()).small());
                 }
             }
-            // Only offered when it is missing: Ghostscript is not ours to ship,
-            // so this sends the user to Artifex rather than installing anything.
+            // Only offered while it is missing, and it only opens a document:
+            // nothing is installed or run on the user's behalf.
             if matches!(self.gs, GsStatus::NotFound | GsStatus::Invalid { .. })
                 && ui
-                    .small_button("Get Ghostscript…")
+                    .small_button("How to install…")
                     .on_hover_text(
-                        "Ghostscript is separate software by Artifex Software, Inc.,\n\
-                         licensed under the GNU AGPL v3. This opens their installer\n\
-                         or download page; AI8 Converter does not include it.",
+                        "Opens a short guide. Ghostscript is separate software by\n\
+                         Artifex Software, Inc. under the GNU AGPL v3; AI8 Converter\n\
+                         does not include it and will not install it for you.",
                     )
                     .clicked()
             {
-                get_ghostscript();
+                show_ghostscript_guide();
             }
             if ui.small_button("Browse…").clicked() {
                 let mut dlg = rfd::FileDialog::new().set_title("Locate the Ghostscript executable");

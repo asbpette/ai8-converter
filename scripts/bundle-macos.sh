@@ -85,6 +85,9 @@ cp "assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 # MIT requires the notice to travel with binaries; so do the crate licences.
 cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
+# The app's "How to install..." button opens this; Artifex publish no macOS
+# build, so a guide is the only useful thing to point a Mac user at.
+cp docs/installing-ghostscript.html "$APP/Contents/Resources/Installing Ghostscript.html"
 if [ -f THIRD-PARTY-NOTICES.txt ]; then
     cp THIRD-PARTY-NOTICES.txt "$APP/Contents/Resources/THIRD-PARTY-NOTICES.txt"
 else

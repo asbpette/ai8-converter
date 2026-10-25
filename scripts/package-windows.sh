@@ -127,6 +127,7 @@ cp "$ROOT/THIRD-PARTY-NOTICES.txt" "$PKG/THIRD-PARTY-NOTICES.txt"
 # here-documents: they are reviewed, diffed and syntax-checked in CI like any
 # other source. Copy them in under the names the user sees, with CRLF so
 # cmd.exe parses the batch file correctly.
+cp "$ROOT/docs/installing-ghostscript.html" "$PKG/Installing Ghostscript.html"
 for f in install-ghostscript.cmd install-ghostscript.ps1; do
   case "$f" in
     *.cmd) out="$PKG/Install Ghostscript.cmd" ;;
@@ -153,11 +154,12 @@ Command line:  ai8conv.exe --help
 
 EPS and PS files
 ----------------
-Reading EPS and PS needs Ghostscript, which is not included. Run
-"Install Ghostscript.cmd" in this folder: it downloads Ghostscript from
-Artifex, checks that their signature is on it, and runs their installer. It
-uses Chocolatey instead when you already have it. If it cannot, it prints the
-address to get it from. PDF, AI, SVG and DXF files convert without it.
+Reading EPS and PS needs Ghostscript, which is not included. Open
+"Installing Ghostscript.html" in this folder for the steps and the links.
+
+In short: install it yourself from ghostscript.com, or double-click
+"Install Ghostscript.cmd" here to have Artifex's own installer fetched and
+started for you. PDF, AI, SVG and DXF files convert without Ghostscript.
 
 Windows may show a SmartScreen warning the first time because the program is
 not code-signed: click "More info" -> "Run anyway".

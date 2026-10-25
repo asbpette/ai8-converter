@@ -54,6 +54,7 @@ trap 'rm -rf "$STAGE"' EXIT
 ditto "$APP" "$STAGE/$APP_NAME.app"
 ln -s /Applications "$STAGE/Applications"
 cp scripts/macos/README-install.txt "$STAGE/Read Me First.txt"
+cp docs/installing-ghostscript.html "$STAGE/Installing Ghostscript.html"
 
 rm -f "$DMG"
 hdiutil create -volname "$APP_NAME $VERSION" -srcfolder "$STAGE" -fs HFS+ \
