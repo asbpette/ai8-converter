@@ -40,8 +40,9 @@ Ghostscript from Artifex* as an optional step that runs the same script. It
 downloads Artifex's own installer, verifies their Authenticode signature on it
 before running anything, and starts it so you accept Artifex's licence
 directly. Chocolatey is used instead when it is already installed, and if
-anything fails it opens Artifex's download page. Either way Ghostscript comes
-from Artifex, never from us.
+anything fails it just says so. Nothing opens a browser by itself: the app
+shows a download link on its Ghostscript line, and only while Ghostscript is
+actually missing. Either way Ghostscript comes from Artifex, never from us.
 
 The app looks for Ghostscript in this order:
 

@@ -346,6 +346,22 @@ fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<ProcOutput> {
 
 #[cfg(test)]
 mod tests {
+    /// Pins the directory names Ghostscript actually installs into, so a
+    /// parser change cannot silently stop the app finding a real install.
+    #[test]
+    fn parses_shipped_ghostscript_dir_names() {
+        for n in ["gs10.08.0", "gs10.04.0", "gs9.56.1", "gs10.0", "gs10"] {
+            assert!(parse_gs_dir_version(n).is_some(), "failed to parse {n}");
+        }
+        assert_eq!(parse_gs_dir_version("gs10.08.0"), Some(vec![10, 8, 0]));
+        let mut v = [
+            parse_gs_dir_version("gs9.56.1").unwrap(),
+            parse_gs_dir_version("gs10.08.0").unwrap(),
+        ];
+        v.sort_by(|a, b| b.cmp(a));
+        assert_eq!(v[0], vec![10, 8, 0], "newest version must sort first");
+    }
+
     use super::*;
 
     #[test]
@@ -389,3 +405,4 @@ mod tests {
         let _ = std::fs::remove_dir(&dir);
     }
 }
+

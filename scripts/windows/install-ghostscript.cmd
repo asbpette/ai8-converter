@@ -55,11 +55,12 @@ if not defined NOPAUSE pause
 exit /b 0
 
 :page
-echo Could not install it automatically. Opening Artifex's download page.
-start "" https://ghostscript.com/releases/gsdnld.html
+echo Ghostscript was not installed.
 echo.
-echo Download the 64-bit Ghostscript installer for Windows and run it, then
-echo start AI8 Converter or press "Re-detect" on its Ghostscript line.
+echo Install it yourself from:
+echo   https://ghostscript.com/releases/gsdnld.html
+echo Pick the 64-bit installer for Windows. AI8 Converter picks it up on its
+echo own; there is also a "Re-detect" button on its Ghostscript line.
 if not defined NOPAUSE pause
 exit /b 1
 
@@ -67,8 +68,14 @@ rem Locate Ghostscript the same way the app does: the versioned install
 rem directories first, then PATH.
 :find
 set "GSEXE="
-for /d %%D in ("%ProgramFiles%\gs\gs*") do if exist "%%~D\bin\gswin64c.exe" set "GSEXE=%%~D\bin\gswin64c.exe"
+rem "for /d" does not reliably expand a wildcard inside a quoted path, which is
+rem how this missed real installs; "dir /b /ad" does. The "if exist" guard means
+rem the command needs no redirection, which cannot be escaped reliably here.
+if not exist "%ProgramFiles%\gs\" goto findpath
+for /f "delims=" %%D in ('dir /b /ad "%ProgramFiles%\gs"') do if exist "%ProgramFiles%\gs\%%D\bin\gswin64c.exe" set "GSEXE=%ProgramFiles%\gs\%%D\bin\gswin64c.exe"
 if defined GSEXE exit /b 0
+
+:findpath
 rem Pre-test so the "for /f" command needs no redirection: escaping ">" inside
 rem the single quotes is unreliable.
 where gswin64c.exe >nul 2>&1

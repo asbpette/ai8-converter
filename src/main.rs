@@ -287,7 +287,8 @@ fn gs_install_command() -> &'static str {
 /// Artifex and is never shipped with AI8 Converter, so this only ever hands the
 /// job to Artifex or to the system package manager: on Windows the
 /// "Install Ghostscript.cmd" helper beside the executable, otherwise Artifex's
-/// own download page.
+/// own download page. Nothing here runs unless the user asks for it, and the
+/// button is only offered while Ghostscript is missing.
 fn get_ghostscript() {
     #[cfg(windows)]
     if let Some(helper) = std::env::current_exe()
@@ -562,6 +563,8 @@ struct App {
     preview: Option<PreviewWindow>,
     pdf_jobs: Vec<Receiver<Result<PathBuf, String>>>,
     svg_jobs: Vec<(u64, Receiver<Result<ConvertReport, String>>)>,
+    /// When Ghostscript was last looked for, for [`App::poll_ghostscript`].
+    gs_checked: std::time::Instant,
 }
 
 impl App {
@@ -578,6 +581,7 @@ impl App {
             preview: None,
             pdf_jobs: Vec::new(),
             svg_jobs: Vec::new(),
+            gs_checked: std::time::Instant::now(),
         }
     }
 
@@ -711,6 +715,22 @@ impl App {
         });
     }
 
+    /// Re-run detection while Ghostscript is missing, so installing it in
+    /// another window is noticed on its own. Only a handful of `stat` calls,
+    /// and only while it is absent: once found, this stops.
+    fn poll_ghostscript(&mut self, ctx: &egui::Context) {
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+        if !matches!(self.gs, GsStatus::NotFound) {
+            return;
+        }
+        if self.gs_checked.elapsed() >= EVERY {
+            self.gs_checked = std::time::Instant::now();
+            self.gs = GsStatus::detect();
+        }
+        // Keep the frames coming, or nothing would re-poll until the next click.
+        ctx.request_repaint_after(EVERY);
+    }
+
     fn gs_ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             match &self.gs {
@@ -728,6 +748,13 @@ impl App {
                         ))
                         .small(),
                     );
+                    // The only place the download page is offered, and only
+                    // while it really is missing.
+                    ui.hyperlink_to(
+                        egui::RichText::new("download page").small(),
+                        GS_DOWNLOAD_URL,
+                    )
+                    .on_hover_text(GS_DOWNLOAD_URL);
                 }
                 GsStatus::Invalid { path, error } => {
                     ui.label(egui::RichText::new("not usable").color(egui::Color32::from_rgb(200, 50, 50)))
@@ -1015,6 +1042,7 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.poll_ghostscript(ui.ctx());
         self.poll_worker();
         self.poll_pdf_jobs();
         self.poll_svg_jobs();

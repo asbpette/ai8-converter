@@ -156,8 +156,8 @@ EPS and PS files
 Reading EPS and PS needs Ghostscript, which is not included. Run
 "Install Ghostscript.cmd" in this folder: it downloads Ghostscript from
 Artifex, checks that their signature is on it, and runs their installer. It
-uses Chocolatey instead when you already have it, and falls back to opening
-Artifex's download page. PDF, AI, SVG and DXF files convert without it.
+uses Chocolatey instead when you already have it. If it cannot, it prints the
+address to get it from. PDF, AI, SVG and DXF files convert without it.
 
 Windows may show a SmartScreen warning the first time because the program is
 not code-signed: click "More info" -> "Run anyway".
@@ -233,7 +233,7 @@ v3. AI8 Converter runs it as a child process over its command-line interface
 and contains no Ghostscript code.
 
 This installer can fetch it for you as an optional step: it uses Chocolatey
-when that is present, and otherwise opens Artifex's download page. Either way
+when that is present. Either way
 you obtain Ghostscript directly from Artifex, under Artifex's own licence,
 which their installer presents.
 TXT

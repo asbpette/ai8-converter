@@ -144,7 +144,7 @@ SectionEnd
 ; here. This section runs the "Install Ghostscript.cmd" helper that SecMain just
 ; installed, so there is ONE implementation of "get Ghostscript" shared with the
 ; portable zip. The helper uses Chocolatey when present and otherwise opens
-; Artifex's download page, so the user always receives Ghostscript from Artifex
+; prints Artifex's download address, so the user always receives Ghostscript from Artifex
 ; under the licence Artifex's own installer presents.
 ; Pre-selected in .onInit when no Ghostscript is detected.
 Section /o "Install Ghostscript from Artifex (for EPS/PS files)" SecGs
@@ -156,17 +156,17 @@ Section /o "Install Ghostscript from Artifex (for EPS/PS files)" SecGs
   ${If} $0 == 0
     DetailPrint "Ghostscript is ready."
   ${Else}
-    ; The helper has already opened Artifex's download page by this point, so
-    ; only explain what happened; do not open a second browser window.
+    ; Nothing opens a browser on its own: say what happened and leave it. The
+    ; app offers the download link itself, but only while Ghostscript is
+    ; actually missing.
     DetailPrint "Could not install it automatically (exit code $0)."
-    DetailPrint "Artifex's download page was opened in the browser."
+    DetailPrint "Install it from https://ghostscript.com/releases/gsdnld.html"
     MessageBox MB_ICONINFORMATION|MB_OK \
       "Ghostscript was not installed automatically.$\n$\n\
-Artifex's download page has been opened in your browser: download the 64-bit \
-Windows installer and run it.$\n$\n\
-You can retry at any time with $\"Install Ghostscript.cmd$\" in the AI8 \
-Converter folder. Afterwards start AI8 Converter and press $\"Re-detect$\" on \
-the Ghostscript line." /SD IDOK
+Install it yourself from https://ghostscript.com/releases/gsdnld.html - pick \
+the 64-bit installer for Windows.$\n$\n\
+You can also retry at any time with $\"Install Ghostscript.cmd$\" in the AI8 \
+Converter folder. AI8 Converter notices a new install on its own." /SD IDOK
   ${EndIf}
 SectionEnd
 
