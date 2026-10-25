@@ -77,6 +77,14 @@ cp "$BIN_DIR/$BIN" "$APP/Contents/MacOS/$BIN"
 cp "$BIN_DIR/ai8conv" "$APP/Contents/MacOS/ai8conv"
 cp "assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
+# MIT requires the notice to travel with binaries; so do the crate licences.
+cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
+if [ -f THIRD-PARTY-NOTICES.txt ]; then
+    cp THIRD-PARTY-NOTICES.txt "$APP/Contents/Resources/THIRD-PARTY-NOTICES.txt"
+else
+    echo "warning: THIRD-PARTY-NOTICES.txt missing; run scripts/gen-third-party-notices.sh" >&2
+fi
+
 if [ -n "$GS_DIR" ]; then
     if [ ! -x "$GS_DIR/bin/gs" ]; then
         echo "no executable $GS_DIR/bin/gs" >&2
@@ -94,8 +102,11 @@ if [ -n "$GS_DIR" ]; then
     if [ ! -f "$GS_DEST/COPYING" ]; then
         echo "warning: $GS_DIR has no COPYING (AGPL) file" >&2
     fi
-    cat > "$APP/Contents/Resources/THIRD-PARTY-NOTICES.txt" <<'EOF'
-AI8 Converter bundles Ghostscript (Artifex Software, Inc.) in
+    cat > "$APP/Contents/Resources/GHOSTSCRIPT-NOTICE.txt" <<'EOF'
+The following applies ONLY to Contents/Resources/gs, not to AI8 Converter
+itself, which is MIT licensed; see LICENSE.txt.
+
+This build of AI8 Converter bundles Ghostscript (Artifex Software, Inc.) in
 Contents/Resources/gs. It is used as a separate program to read EPS/PostScript
 input and is licensed under the GNU Affero General Public License v3; see
 Contents/Resources/gs/COPYING and Contents/Resources/gs/LICENSE.

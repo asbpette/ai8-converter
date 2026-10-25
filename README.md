@@ -179,8 +179,42 @@ and the zipped macOS `.app` as artifacts.
 - The output is a plain AI8 file: one layer, and no embedded preview or procsets. Illustrator and AI-importing applications read it directly, but sending it straight to a PostScript printer won't work, and macOS Preview can't open it (use **Preview** or **Open as PDF** in the app).
 - DXF: text (TEXT, MTEXT, attribute and dimension text, SHX fonts) is not converted; 3D entities are projected flat (top view); hatch patterns become native pattern swatches when their line families repeat on a common lattice (ANSI31, crosshatches, bricks, …), otherwise clipped dashed lines; hatch gradients become linear or radial gradients. Drawings without units are taken as millimetres.
 - In expand mode, a pattern stroke whose outline would have more than 5,000 segments (for example a very long dashed line), and patterns nested more than 4 deep, get a flat colour; a warning is shown.
-- The packaged builds (`scripts/package-windows.sh`, `scripts/bundle-macos.sh --with-gs`) bundle Ghostscript, which is licensed under the GNU AGPL (source: https://github.com/ArtifexSoftware/ghostpdl). A plain `cargo build` does not bundle it.
+- Ghostscript is not bundled by default. Mind its AGPL licence if you redistribute it with the app.
 
-## License
+## Licence
 
-Copyright (c) Asbjørn Pettersen. All rights reserved. Bundled Ghostscript is © Artifex Software, licensed under the GNU AGPL v3.
+AI8 Converter is free and open source under the [MIT Licence](LICENSE) —
+Copyright (c) 2026 Asbjørn Pettersen.
+
+You may use, modify and redistribute it, including commercially and in closed
+source products, provided the copyright notice and the licence text are kept
+in copies and substantial portions of the software. There is no warranty.
+
+### Third-party components
+
+The compiled program links a number of permissively licensed Rust crates (MIT,
+Apache-2.0, BSD, Zlib, ISC, OFL-1.1 for the bundled default fonts). Their
+notices are collected in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt),
+which is regenerated with `scripts/gen-third-party-notices.sh` and ships in the
+Windows and macOS packages.
+
+Ghostscript is a **separate program** under the
+[GNU AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html). AI8 Converter runs
+it as a child process over its command-line interface and contains no
+Ghostscript code, so the two are an aggregate, not a combined work, and the MIT
+licence above is unaffected. Published releases do not bundle it — install it
+yourself as described under [Ghostscript](#ghostscript). The packaging scripts
+can bundle an unmodified copy with `--with-gs` (macOS) or `--with-gs`
+(Windows); if you redistribute such a build, you take on the AGPL obligations
+for the Ghostscript part, including providing the corresponding source for the
+exact version you ship.
+
+### Trademarks
+
+Adobe, Adobe Illustrator and PostScript are trademarks of Adobe Inc. AI8
+Converter is not affiliated with, endorsed by or sponsored by Adobe. Those
+names are used only to describe the file formats this tool reads and writes.
+The AI8 format support is an independent implementation written from the
+published *Adobe Illustrator File Format Specification* and from observing
+files produced by Illustrator; see
+[docs/ai8-format-notes.md](docs/ai8-format-notes.md).

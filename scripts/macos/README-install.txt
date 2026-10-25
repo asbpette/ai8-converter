@@ -33,7 +33,14 @@ After that the app opens normally with a double-click.
 
 Licenses
 --------
-Ghostscript is bundled as a separate program and is licensed under the GNU
-Affero General Public License v3. The license text, the exact upstream
-version and its source download location are inside the app:
-AI8 Converter.app/Contents/Resources/gs/ (COPYING, LICENSE, BUILDINFO.txt).
+AI8 Converter is free and open source under the MIT Licence.
+Copyright (c) 2026 Asbjorn Pettersen. The licence text is inside the app at
+AI8 Converter.app/Contents/Resources/LICENSE.txt, and notices for the open
+source libraries it is built with are in THIRD-PARTY-NOTICES.txt beside it.
+
+If this build bundles Ghostscript, that is a SEPARATE program: AI8 Converter
+runs it as a child process and contains no Ghostscript code. It is licensed
+under the GNU Affero General Public License v3. Its licence text, the exact
+upstream version and its source download location are inside the app:
+AI8 Converter.app/Contents/Resources/gs/ (COPYING, LICENSE, BUILDINFO.txt),
+with a summary in GHOSTSCRIPT-NOTICE.txt.

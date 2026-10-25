@@ -1,12 +1,14 @@
 # Illustrator 8 pattern and gradient syntax: notes and sources
 
-These notes record the syntax `src/ai8.rs` writes for patterns and gradients, and where each part comes from. Every entry below is either quoted from the spec or copied from a real Illustrator file.
+These notes record the syntax `src/ai8.rs` writes for patterns and gradients, and where each part comes from. Each entry is either a short quotation from the published format specification, or an abridged excerpt of a file produced by Illustrator, cited for interoperability.
+
+**On the other implementations cited below.** [SCRIBUS], [XARA] and [VC] are listed because reading them established *facts about the format* — which operands a reader actually parses, in what order, and how it clamps values. No code from any of them was copied, translated or adapted; `src/ai8.rs` and `assets/ai8-procset.ps` are independent implementations written from [SPEC] and from inspecting Illustrator output. This matters because Scribus and Xara Xtreme are GPL-licensed, while this project is MIT.
 
 ## Sources
 
 | Ref | Source | What it gives |
 |-----|--------|---------------|
-| **[SPEC]** | *Adobe Illustrator File Format Specification*, version 7.0, 23 Feb 1998, mirrored at <http://13thmonkey.org/documentation/fonts/AI7FileFormat.pdf>. It covers formats up to AI7; AI8 adds nothing documented for patterns or gradients. | BNF of the setup section (§3), patterns (§3.4), gradients (§3.5), and `p`/`P` (§5.4.1) |
+| **[SPEC]** | *Adobe Illustrator File Format Specification*, version 7.0, 23 Feb 1998 (published by Adobe as part of its developer documentation; copies circulate as `AI7FileFormat.pdf`). It covers formats up to AI7; AI8 adds nothing documented for patterns or gradients. | BNF of the setup section (§3), patterns (§3.4), gradients (§3.5), and `p`/`P` (§5.4.1) |
 | **[AI8]** | A genuine Illustrator 8.0.1 save: `DOEbwlogo.eps` (`%%Creator: Adobe Illustrator(R) 8.0`, `%%AI8_CreatorVersion: 8.0.1`, `%AI5_FileFormat 4.0`). It is embedded in <https://github.com/trilinos/github_move_patches/blob/master/master/0005-Remove-epetraext-inout-docs.patch> as the deleted file `packages/epetraext/doc/inout/DOEbwlogo.eps`. | Exact AI8 setup layout, pattern definition, and gradient definitions |
 | **[AI55]** | Illustrator 5.5 and 6.0 saves: `library/images/logo.eps` in Tk (<https://github.com/tcltk/tk/blob/HEAD/library/images/logo.eps>), and `events/altw2005/poster/usyd.eps` in <https://github.com/altaexec/alta-website> | The same structure in older versions, `(name) … [1 0 0 1 0 0] p` in the palette, and `Bb … Bg … BB` |
 | **[SCRIBUS]** | Scribus AI importer, <https://github.com/scribusproject/scribus/blob/master/scribus/plugins/import/ai/importai.cpp> | What an independent reader expects (see below) |

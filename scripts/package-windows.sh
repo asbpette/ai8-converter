@@ -10,23 +10,29 @@
 # 7zz (sevenzip), gh (GitHub CLI, for downloading Ghostscript), python3, zip,
 # makensis (NSIS 3, `brew install makensis` / `apt install nsis`).
 #
-# Usage: scripts/package-windows.sh [--gs-version 10080] [--out DIR] [--no-gs]
+# Usage: scripts/package-windows.sh [--with-gs] [--gs-version 10080] [--out DIR]
 #                                   [--no-installer] [--no-exe-resource]
+#
+#   --with-gs  bundle an unmodified Ghostscript (AGPL-3.0) in gs/. OFF by
+#              default: redistributing it makes you an AGPL distributor and
+#              obliges you to supply the corresponding source for the exact
+#              version shipped. Published releases are built without it.
 set -euo pipefail
 
 GS_VERSION=10080
 OUT_DIR="$(pwd)/dist"
-WITH_GS=1
+WITH_GS=0
 WITH_INSTALLER=1
 WITH_RES=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gs-version) GS_VERSION="$2"; shift 2 ;;
     --out) OUT_DIR="$2"; shift 2 ;;
-    --no-gs) WITH_GS=0; shift ;;
+    --with-gs) WITH_GS=1; shift ;;
+    --no-gs) WITH_GS=0; shift ;;   # kept for compatibility; now the default
     --no-installer) WITH_INSTALLER=0; shift ;;
     --no-exe-resource) WITH_RES=0; shift ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -112,6 +118,9 @@ PKG="$WORK/$NAME"
 mkdir -p "$PKG"
 cp "$BIN/ai8-converter.exe" "$PKG/AI8 Converter.exe"
 cp "$BIN/ai8conv.exe" "$PKG/ai8conv.exe"
+# MIT requires the notice to travel with binaries; the crate licences too.
+cp "$ROOT/LICENSE" "$PKG/LICENSE.txt"
+cp "$ROOT/THIRD-PARTY-NOTICES.txt" "$PKG/THIRD-PARTY-NOTICES.txt"
 
 if [[ $WITH_GS == 1 ]]; then
   [[ -n "$SEVENZIP" ]] || { echo "error: 7-Zip (7zz or 7z) is required to unpack Ghostscript" >&2; exit 1; }
@@ -184,11 +193,22 @@ not code-signed: click "More info" -> "Run anyway".
 
 Requires 64-bit Windows 10 or 11.
 
-Ghostscript (in the "gs" folder) is used to read EPS/PostScript files. It is
-licensed under the GNU AGPL; see gs\COPYING-Ghostscript-AGPL.txt. Source:
-https://github.com/ArtifexSoftware/ghostpdl
+Licences
+--------
+AI8 Converter is free and open source under the MIT Licence; see LICENSE.txt.
+Copyright (c) 2026 Asbjorn Pettersen. Notices for the open source libraries it
+is built with are in THIRD-PARTY-NOTICES.txt.
+
+Ghostscript (in the "gs" folder) is a SEPARATE program, used to read
+EPS/PostScript files. AI8 Converter runs it as a child process and contains no
+Ghostscript code. It is licensed under the GNU Affero General Public License
+v3; see gs\COPYING-Ghostscript-AGPL.txt. The complete corresponding source for
+the exact version bundled here is the official release it was taken from:
+https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/tag/gs@GSTAG@
 TXT
 # Windows line endings for Notepad.
+sed -i '' "s/@GSTAG@/$GS_VERSION/g" "$PKG/README.txt" 2>/dev/null \
+  || sed -i "s/@GSTAG@/$GS_VERSION/g" "$PKG/README.txt"
 sed -i '' 's/$/\r/' "$PKG/README.txt" 2>/dev/null || sed -i 's/$/\r/' "$PKG/README.txt"
 
 mkdir -p "$OUT_DIR"
@@ -206,12 +226,33 @@ if [[ $WITH_INSTALLER == 1 ]]; then
   {
     cat <<TXT
 AI8 Converter $VERSION
-Copyright (c) Asbjørn Pettersen. All rights reserved.
+Copyright (c) 2026 Asbjorn Pettersen
 
 This installs AI8 Converter, which converts EPS, PS, PDF, AI SVG and DXF vector
 files to Adobe Illustrator 8 (.ai) files.
 
-The software is provided "as is", without warranty of any kind.
+AI8 Converter is free and open source software under the MIT Licence:
+
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+Notices for the open source libraries AI8 Converter is built with are
+installed as THIRD-PARTY-NOTICES.txt.
 TXT
     if [[ $WITH_GS == 1 ]]; then
       cat <<'TXT'
@@ -219,16 +260,23 @@ TXT
 ------------------------------------------------------------------------
 Ghostscript
 ------------------------------------------------------------------------
-AI8 Converter includes an unmodified copy of Artifex Ghostscript (installed
-in the "gs" subfolder), which is used to read EPS/PostScript files and runs
-as a separate program. Ghostscript is licensed under the GNU Affero General
-Public License v3, reproduced below. Source code:
-https://github.com/ArtifexSoftware/ghostpdl
+The following applies ONLY to the files in the "gs" subfolder, not to AI8
+Converter itself, which is MIT licensed as stated above.
+
+AI8 Converter installs an unmodified copy of Artifex Ghostscript in the "gs"
+subfolder. It is used to read EPS/PostScript files and runs as a separate
+program, invoked over its command-line interface; AI8 Converter contains no
+Ghostscript code. Ghostscript is licensed under the GNU Affero General Public
+License v3, reproduced below. The complete corresponding source for the exact
+version installed here is the official release it was taken from:
+https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/tag/gs@GSTAG@
 
 TXT
       cat "$PKG/gs/COPYING-Ghostscript-AGPL.txt"
     fi
   } > "$LICENSE"
+  sed -i '' "s/@GSTAG@/$GS_VERSION/g" "$LICENSE" 2>/dev/null \
+    || sed -i "s/@GSTAG@/$GS_VERSION/g" "$LICENSE"
   SETUP="$OUT_DIR/$NAME-setup.exe"
   rm -f "$SETUP"
   makensis -V2 -INPUTCHARSET UTF8 \

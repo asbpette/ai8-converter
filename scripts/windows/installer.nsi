@@ -36,6 +36,7 @@ RequestExecutionLevel admin
 
 !define APPNAME   "AI8 Converter"
 !define PUBLISHER "IOTEK"
+!define COPYRIGHT "Copyright (c) 2026 Asbjørn Pettersen. MIT Licensed."
 !define APPEXE    "AI8 Converter.exe"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 
@@ -60,7 +61,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "FileDescription" "${APPNAME} ${VERSION} Setup"
 VIAddVersionKey "CompanyName" "${PUBLISHER}"
-VIAddVersionKey "LegalCopyright" "Copyright (c) Asbjørn Pettersen. All rights reserved."
+VIAddVersionKey "LegalCopyright" "${COPYRIGHT}"
 
 ; ---- Modern UI ----
 !define MUI_ABORTWARNING
@@ -160,6 +161,8 @@ Section "Uninstall"
   Delete "$INSTDIR\${APPEXE}"
   Delete "$INSTDIR\ai8conv.exe"
   Delete "$INSTDIR\README.txt"
+  Delete "$INSTDIR\LICENSE.txt"
+  Delete "$INSTDIR\THIRD-PARTY-NOTICES.txt"
   RMDir /r "$INSTDIR\gs"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
