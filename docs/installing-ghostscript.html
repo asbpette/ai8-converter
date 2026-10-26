@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installing Ghostscript</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5b626b; --line: #e3e6ea;
+    --code-bg: #f4f6f8; --accent: #1f6feb; --warn-bg: #fff8e6; --warn-line: #e3b341;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181c; --fg: #e8eaed; --muted: #9aa3ad; --line: #2b3038;
+      --code-bg: #1e2228; --accent: #6ea8fe; --warn-bg: #2b2415; --warn-line: #8a6d1f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15181c; --fg: #e8eaed; --muted: #9aa3ad; --line: #2b3038;
+    --code-bg: #1e2228; --accent: #6ea8fe; --warn-bg: #2b2415; --warn-line: #8a6d1f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); margin: 0;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 2.5rem 16px 4rem; }
+  h1 { font-size: 1.75rem; line-height: 1.25; margin: 0 0 .5rem; }
+  h2 { font-size: 1.2rem; margin: 2.25rem 0 .6rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.5rem 0 .4rem; }
+  p, li { color: var(--fg); }
+  .lede { color: var(--muted); margin: 0 0 1.5rem; }
+  a { color: var(--accent); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .75rem 1rem; overflow-x: auto; margin: .6rem 0;
+  }
+  code { background: var(--code-bg); border-radius: 4px; padding: .12em .35em; }
+  pre code { background: none; padding: 0; }
+  .note {
+    background: var(--warn-bg); border: 1px solid var(--warn-line); border-left-width: 4px;
+    border-radius: 6px; padding: .8rem 1rem; margin: 1.25rem 0;
+  }
+  .note p { margin: 0; }
+  ol, ul { padding-left: 1.4rem; }
+  li { margin: .3rem 0; }
+  footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Installing Ghostscript</h1>
+<p class="lede">AI8 Converter needs Ghostscript to read <strong>EPS</strong> and <strong>PostScript</strong> files. PDF, AI, SVG and DXF files convert without it.</p>
+
+<div class="note">
+<p><strong>AI8 Converter will not install anything for you.</strong> It never downloads or runs software behind your back. Follow the steps for your system below, and do them yourself, so you can see exactly what is being installed and where it comes from.</p>
+</div>
+
+<h2>What Ghostscript is, and why it is separate</h2>
+<p>Ghostscript is a PostScript and PDF interpreter made by <a href="https://artifex.com/">Artifex Software, Inc.</a> It is not part of AI8 Converter and is not bundled with it. AI8 Converter runs it as a separate program and contains none of its code.</p>
+<p>It is published under the <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License v3</a>. That licence has conditions AI8 Converter's MIT licence does not, which is why you install it yourself and receive it directly from Artifex under their terms rather than ours.</p>
+
+<h2>macOS</h2>
+<p>Artifex does not publish a ready-made macOS build, so use a package manager.</p>
+
+<h3>With Homebrew (recommended)</h3>
+<p>If you do not have <a href="https://brew.sh/">Homebrew</a>, install it first from <a href="https://brew.sh/">brew.sh</a>. Then open <strong>Terminal</strong> and run:</p>
+<pre><code>brew install ghostscript</code></pre>
+<p>This installs to <code>/opt/homebrew/bin/gs</code> on Apple Silicon, or <code>/usr/local/bin/gs</code> on Intel Macs. AI8 Converter looks in both.</p>
+
+<h3>With MacPorts</h3>
+<pre><code>sudo port install ghostscript</code></pre>
+<p>This installs to <code>/opt/local/bin/gs</code>, which AI8 Converter also checks.</p>
+
+<h2>Windows</h2>
+
+<h3>The installer from Artifex (recommended)</h3>
+<ol>
+  <li>Open <a href="https://ghostscript.com/releases/gsdnld.html">ghostscript.com/releases/gsdnld.html</a>.</li>
+  <li>Download the <strong>64-bit</strong> installer under <em>Ghostscript AGPL Release</em>, named something like <code>gs10080w64.exe</code>.</li>
+  <li>Run it and accept the defaults. It installs to <code>C:\Program Files\gs\</code>, where AI8 Converter looks.</li>
+</ol>
+
+<h3>Or with the helper script</h3>
+<p>The AI8 Converter folder contains <strong>Install Ghostscript.cmd</strong>. Double-click it and it will fetch Artifex's installer for you, check that Artifex's signature is on the download before running it, and then start Artifex's own installer so you accept their licence. It uses Chocolatey instead if you already have it.</p>
+<p>It is an ordinary text file: open it in Notepad first if you want to see exactly what it does.</p>
+
+<h3>Or with Chocolatey</h3>
+<pre><code>choco install ghostscript</code></pre>
+<p>Ghostscript is <strong>not</strong> available through the Windows Package Manager (<code>winget</code>).</p>
+
+<h2>Linux</h2>
+<p>Install your distribution's package:</p>
+<pre><code>sudo apt install ghostscript      # Debian, Ubuntu
+sudo dnf install ghostscript      # Fedora
+sudo pacman -S ghostscript        # Arch</code></pre>
+
+<h2>Afterwards</h2>
+<p>AI8 Converter checks for Ghostscript every couple of seconds while it is missing, so the <em>Ghostscript</em> line turns to <strong>found</strong> on its own shortly after the install finishes. There is no need to restart it, though the <strong>Re-detect</strong> button forces an immediate check.</p>
+
+<h3>If it is still not found</h3>
+<p>Use the <strong>Browse…</strong> button on the Ghostscript line to point AI8 Converter straight at the program:</p>
+<ul>
+  <li><strong>Windows:</strong> <code>C:\Program Files\gs\gs<em>VERSION</em>\bin\gswin64c.exe</code></li>
+  <li><strong>macOS and Linux:</strong> <code>gs</code> — run <code>which gs</code> in a terminal to find its path</li>
+</ul>
+<p>You can also set the <code>AI8_GHOSTSCRIPT</code> environment variable to the full path of the program, which overrides everything else. On the command line, <code>ai8conv --gs PATH</code> does the same for one run.</p>
+
+<footer>
+<p>Ghostscript is a trademark of Artifex Software, Inc. AI8 Converter is not affiliated with, endorsed by or sponsored by Artifex.</p>
+</footer>
+
+</main>
+</body>
+</html>

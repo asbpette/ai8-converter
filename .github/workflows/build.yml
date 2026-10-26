@@ -1,0 +1,124 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Ghostscript
+        run: choco install ghostscript -y --no-progress
+      - name: Show detected Ghostscript
+        shell: pwsh
+        run: Get-ChildItem "C:\Program Files\gs" -Recurse -Filter gswin64c.exe | Select-Object -ExpandProperty FullName
+      # The Ghostscript helper ships to users but never runs in these tests, so
+      # at least prove it parses on a real Windows PowerShell.
+      - name: Check the Ghostscript helper parses
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/windows/install-ghostscript.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+          Write-Host 'install-ghostscript.ps1 parses cleanly'
+      - name: Clippy
+        run: cargo clippy --all-targets
+      - name: Test
+        run: cargo test
+      - name: Build release
+        run: cargo build --release --bins
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/ai8-converter.exe "dist/AI8 Converter.exe"
+          Copy-Item target/release/ai8conv.exe dist/ai8conv.exe
+          Copy-Item README.md dist/README.md
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item THIRD-PARTY-NOTICES.txt dist/THIRD-PARTY-NOTICES.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI8-Converter-Windows-x64
+          path: dist/
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Ghostscript
+        run: brew install ghostscript
+      - name: Clippy
+        run: cargo clippy --all-targets
+      - name: Test
+        run: cargo test
+      - name: Ghostscript version
+        id: gs
+        run: echo "version=$(scripts/macos/build-ghostscript.sh --version)" >> "$GITHUB_OUTPUT"
+      # Self-contained universal Ghostscript (built from source, ~1.5 min); cached
+      # per Ghostscript version and build recipe.
+      - name: Cache bundled Ghostscript
+        uses: actions/cache@v4
+        with:
+          path: target/ghostscript/gs-${{ steps.gs.outputs.version }}-macos-universal
+          key: gs-${{ steps.gs.outputs.version }}-macos-universal-${{ hashFiles('scripts/macos/build-ghostscript.sh') }}
+      # Verification only, NOT uploaded: keeps scripts/macos/build-ghostscript.sh
+      # and the opt-in --with-gs path working without publishing AGPL software.
+      - name: Verify the opt-in Ghostscript bundle still builds
+        run: scripts/bundle-macos.sh --universal --with-gs
+      - name: Check the bundled Ghostscript
+        run: |
+          APP="target/release/bundle/AI8 Converter.app"
+          otool -L "$APP/Contents/Resources/gs/bin/gs"
+          codesign --verify --deep --strict "$APP"
+          env -i PATH=/usr/bin:/bin "$APP/Contents/Resources/gs/bin/gs" -q -dSAFER -dBATCH -dNOPAUSE \
+            -dNoOutputFonts -dEPSCrop -sDEVICE=pdfwrite -sOutputFile="$RUNNER_TEMP/t.pdf" tests/fixtures/eps/text.eps
+          env -i PATH=/usr/bin:/bin HOME="$HOME" "$APP/Contents/MacOS/ai8conv" -o "$RUNNER_TEMP" tests/fixtures/eps/shapes.eps
+      # The published artifact: no Ghostscript, so no AGPL obligations.
+      - name: Build app bundle + DMG for release (no Ghostscript)
+        run: scripts/bundle-macos.sh --universal --dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI8-Converter-macOS
+          path: |
+            dist/*.dmg
+            target/release/bundle/AI8-Converter-macOS.zip
+
+  # Portable zip + NSIS installer, cross-compiled exactly like a local
+  # `scripts/package-windows.sh` run. Ghostscript is not bundled: the package
+  # and the installer offer to install it from Artifex instead.
+  windows-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cross tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mingw-w64 nsis zip file
+      - name: Package (zip + installer)
+        run: scripts/package-windows.sh --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI8-Converter-Windows-x64-package
+          path: |
+            dist/*.zip
+            dist/*-setup.exe

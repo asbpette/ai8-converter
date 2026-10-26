@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="120">
+  <defs>
+    <pattern id="p" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="3" height="6" fill="#c00"/>
+    </pattern>
+  </defs>
+  <text x="10" y="45" font-family="Helvetica, Arial, sans-serif" font-size="36" fill="#123">Hello AI8</text>
+  <text x="10" y="105" font-family="Helvetica, Arial, sans-serif" font-size="56" font-weight="bold" fill="url(#p)">Pattern</text>
+</svg>

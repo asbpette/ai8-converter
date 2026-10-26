@@ -1,0 +1,421 @@
+%!PS-Adobe-3.0
+%%Title: AI8 preview procset (ai8-converter)
+%%EndComments
+% A PostScript prolog that defines the Adobe Illustrator 8 ("AI5_FileFormat
+% 4.0") art operators, so that Ghostscript can image an AI8 file written
+% without procsets. It follows the semantics of the Adobe Illustrator File
+% Format Specification 7.0 (1998), not the conventions of any one writer:
+%
+% * paint state (fill/stroke colour, fill rule) is document state that
+%   persists until changed (spec §5); q/Q only save and restore the clip
+%   (and the line style, which lives in the graphics state);
+% * a compound path (*u ... *U) is ONE PostScript path: the painting
+%   operators inside it only record how it is painted, and the whole path is
+%   painted once at *U (the last painting operator wins);
+% * h/H + W inside a q group intersect the clip with the path (§5.6.2);
+%   in a compound path the union of all subpaths becomes the clip;
+% * patterns: (name) llx lly urx ury [ (colour) @ (tile art) & ... ] E
+%   defines a tile; p/P paint with a Level 2 tiling pattern whose pattern
+%   space is the tile space moved so that the tile's lower-left corner is
+%   the origin, transformed by the [a b c d tx ty] matrix and the named
+%   transforms (§5.4.1, "the initial matrix to which all other pattern
+%   transformations are applied");
+% * gradients: the stops of a definition are the operands left on the stack
+%   by the "... %_BS" / "... %_Bs" lines (the rest of those lines, and the
+%   whole "%_... Bs" lines of AI8, are PostScript comments); BD collects them
+%   (§3.5.2). Instances Bb [Bh] Bg ... f BB (§3.5.3-3.5.5) are imaged with
+%   Level 3 axial/radial shadings. The Bg matrix is applied with the formula
+%   of §3.5.4 about the canvas corner (W/2 - 4320, H/2 + 4320). Bm/Bc/Xm
+%   (imaging hints) are ignored.
+%
+% The art size (AI8P_ArtW / AI8P_ArtH) is set by the caller before the art.
+
+/AI8P_Dict 200 dict def
+AI8P_Dict begin
+
+/AI8P_ArtW 612 def
+/AI8P_ArtH 792 def
+/AI8P_pats 64 dict def
+/AI8P_grads 64 dict def
+/ai8p_tmp 64 dict def
+/ai8p_gd 64 dict def
+/AI8P_Unknown 0 def
+
+% Fresh paint state (pushed on the dictionary stack; operators `def` into it).
+/ai8p_newstate {
+  32 dict begin
+  /_fillc { 0 setgray } def
+  /_strokec { 0 setgray } def
+  /_eo false def
+  /_cdepth 0 def
+  /_clip false def
+  /_pend_fill false def
+  /_pend_stroke false def
+  /_pend_grad null def
+  /_ingrad false def
+  /_ginst null def
+  /_gflag 1 def
+  /_hl [ 0 0 0 0 ] def
+  currentdict end
+} def
+
+/ai8p_clamp01 { dup 0 lt { pop 0 } if dup 1 gt { pop 1 } if } def
+
+% ---------------------------------------------------------------- procsets
+/Adobe_level2_AI5 2 dict dup begin /initialize { } def /terminate { } def end def
+/Adobe_ColorImage_AI6 2 dict dup begin /initialize { } def /terminate { } def end def
+/Adobe_Illustrator_AI5 2 dict dup begin /initialize { } def /terminate { } def end def
+/annotatepage { } def
+
+% ------------------------------------------------- document / layer markup
+/Lb { 13 { pop } repeat } def      % layer begin (13 attributes)
+/Ln { pop } def                    % layer name
+/LB { } def                        % layer end
+/A { pop } def                     % object locking
+/Ar { pop } def                    % output resolution
+/i { pop } def                     % flatness (the device default is kept)
+/Np { } def                        % non-printing block marker
+/D { pop } def                     % path winding direction
+/O { pop } def                     % fill overprint (not simulated)
+/R { pop } def                     % stroke overprint (not simulated)
+/XR { 1 eq /_eo exch def } def     % fill rule: 0 non-zero, 1 even-odd
+
+% ---------------------------------------------------------------- colour
+/g { [ exch /setgray load ] cvx /_fillc exch def } def
+/G { [ exch /setgray load ] cvx /_strokec exch def } def
+/k { [ 5 1 roll /setcmykcolor load ] cvx /_fillc exch def } def
+/K { [ 5 1 roll /setcmykcolor load ] cvx /_strokec exch def } def
+/Xa { [ 4 1 roll /setrgbcolor load ] cvx /_fillc exch def } def
+/XA { [ 4 1 roll /setrgbcolor load ] cvx /_strokec exch def } def
+% c m y k (name) tint x : tint is inverted (0 = 100%); the CMYK values are
+% multiplied by the screen fraction (spec §5.4.1).
+/ai8p_custom {
+  ai8p_tmp begin
+  1 exch sub /s exch def pop
+  4 { s mul 4 1 roll } repeat
+  [ 5 1 roll /setcmykcolor load ] cvx
+  end
+} def
+/x { ai8p_custom /_fillc exch def } def
+/X { ai8p_custom /_strokec exch def } def
+% comp1 ... compn (name) tint type Xx : generic custom colour (0 CMYK, 1 RGB)
+/ai8p_xx {
+  ai8p_tmp begin
+  /xt exch def 1 exch sub /s exch def pop
+  xt 1 eq {
+    3 { 1 exch sub s mul 1 exch sub 3 1 roll } repeat
+    [ 4 1 roll /setrgbcolor load ] cvx
+  } {
+    4 { s mul 4 1 roll } repeat
+    [ 5 1 roll /setcmykcolor load ] cvx
+  } ifelse
+  end
+} def
+/Xx { ai8p_xx /_fillc exch def } def
+/XX { ai8p_xx /_strokec exch def } def
+
+% ---------------------------------------------------------------- patterns
+% (name) llx lly urx ury [ (colour) @ (art) & ... ] E
+/@ { } def
+/& { } def
+/E { 6 array astore dup 0 get exch AI8P_pats 3 1 roll put } def
+/_ { } def
+
+% Paint a pattern tile: each layer's colour string and art string are
+% executed in order, with a fresh paint state.
+/ai8p_drawlayers {
+  ai8p_newstate begin
+  { cvx exec } forall
+  end
+} def
+
+/ai8p_concat { matrix concatmatrix } def   % m1 m2 -> m1·m2 (m1 applied first)
+
+% (name) px py sx sy angle rf r k ka [a b c d tx ty] -> paint procedure
+/ai8p_mkpat {
+  ai8p_tmp begin
+  /pm exch def /pka exch def /pk exch def /pr exch def /prf exch def
+  /pang exch def /psy exch def /psx exch def /ppy exch def /ppx exch def
+  /pnm exch def
+  AI8P_pats pnm known {
+    /pd AI8P_pats pnm get def
+    /pxs pd 3 get pd 1 get sub def
+    /pys pd 4 get pd 2 get sub def
+    pxs 0 ne pys 0 ne and {
+      % tile lower-left -> origin, then the matrix, then the named transforms
+      pd 1 get neg pd 2 get neg matrix translate
+      pm ai8p_concat
+      psx psy matrix scale ai8p_concat
+      pang matrix rotate ai8p_concat
+      prf 0 ne {
+        pr neg matrix rotate ai8p_concat
+        1 -1 matrix scale ai8p_concat
+        pr matrix rotate ai8p_concat
+      } if
+      pk 0 ne {
+        pka neg matrix rotate ai8p_concat
+        [ 1 0 pk sin pk cos div 1 0 0 ] ai8p_concat
+        pka matrix rotate ai8p_concat
+      } if
+      ppx ppy matrix translate ai8p_concat
+      /tm exch def
+      <<
+        /PatternType 1 /PaintType 1 /TilingType 1
+        /BBox [ pd 1 get pd 2 get pd 3 get pd 4 get ]
+        /XStep pxs abs /YStep pys abs
+        /PaintProc { /AI8P_Layers get ai8p_drawlayers }
+        /AI8P_Layers pd 5 get
+      >> tm makepattern
+      [ exch /setpattern load ] cvx
+    } { { 0.5 setgray } } ifelse
+  } { { 0.5 setgray } } ifelse
+  end
+} def
+/p { ai8p_mkpat /_fillc exch def } def
+/P { ai8p_mkpat /_strokec exch def } def
+
+% ---------------------------------------------------------------- gradients
+/Bn { pop } def
+/Bs { } def /BS { } def /Br { } def
+/Bm { 6 { pop } repeat } def
+/Bc { 6 { pop } repeat } def
+/Xm { 6 { pop } repeat } def
+
+% (name) type nColors Bd
+/Bd { ai8p_gd begin /gn exch def /gtyp exch def /gname exch def count /base exch def end } def
+
+/ai8p_tok { /ti ti 1 sub def toks ti get } def
+
+% One stop, read from the end of the collected operands:
+% colorSpec colorStyle midPoint rampPoint -> [pos mid style comps]
+% (custom colours are resolved to their tinted process colour).
+/ai8p_popstop {
+  /rp ai8p_tok def /mp ai8p_tok def /st ai8p_tok cvi def
+  /sl [ 1 4 7 6 10 ] st get def
+  /ti ti sl sub def
+  /raw toks ti sl getinterval def
+  st 3 eq {
+    /tn 1 raw 5 get sub def
+    /cs [ 0 1 3 { raw exch get tn mul } for ] def /st 1 def
+  } {
+    st 4 eq {
+      /tn 1 raw 8 get sub def
+      /cs [ 0 1 3 { raw exch get tn mul } for
+            4 1 6 { raw exch get 1 exch sub tn mul 1 exch sub } for ] def /st 2 def
+    } { /cs raw def } ifelse
+  } ifelse
+  [ rp 100 div ai8p_clamp01 mp 100 div st cs ]
+} def
+
+% stop -> colour components in gspace
+/ai8p_conv {
+  dup 2 get /cst exch def 3 get /ccs exch def
+  gspace /DeviceCMYK eq {
+    cst 0 eq { [ 0 0 0 1 ccs 0 get sub ] } { [ ccs 0 get ccs 1 get ccs 2 get ccs 3 get ] } ifelse
+  } {
+    gspace /DeviceRGB eq {
+      cst 0 eq { [ ccs 0 get dup dup ] } { [ ccs 4 get ccs 5 get ccs 6 get ] } ifelse
+    } { [ ccs 0 get ] } ifelse
+  } ifelse
+} def
+
+/ai8p_avg { /av1 exch def /av0 exch def [ 0 1 av0 length 1 sub { dup av0 exch get exch av1 exch get add 2 div } for ] } def
+
+/ai8p_buildfn {
+  % Illustrator lists linear ramps from the last stop to the first: restore
+  % ramp order first so that a stable sort keeps coincident stops in order.
+  stops length 1 gt {
+    stops 0 get 0 get stops stops length 1 sub get 0 get gt {
+      /stops [ stops length 1 sub -1 0 { stops exch get } for ] def
+    } if
+  } if
+  1 1 stops length 1 sub {
+    /si exch def /cur stops si get def /sk si def
+    {
+      sk 0 gt { stops sk 1 sub get 0 get cur 0 get gt } { false } ifelse
+      { stops sk stops sk 1 sub get put /sk sk 1 sub def } { exit } ifelse
+    } loop
+    stops sk cur put
+  } for
+  /hasc false def /hasr false def
+  stops { 2 get dup 1 eq { /hasc true def } if 2 eq { /hasr true def } if } forall
+  /gspace hasc { /DeviceCMYK } { hasr { /DeviceRGB } { /DeviceGray } ifelse } ifelse def
+  /nodes [
+    stops 0 get 0 get 0 gt { [ 0 stops 0 get ai8p_conv ] } if
+    0 1 stops length 1 sub {
+      /ni exch def
+      [ stops ni get 0 get stops ni get ai8p_conv ]
+      ni stops length 1 sub lt {
+        /s0 stops ni get def /s1 stops ni 1 add get def
+        s0 1 get 0.5 sub abs 0.001 gt s1 0 get s0 0 get gt and {
+          [ s0 0 get s0 1 get 0.13 max2 0.87 min2 s1 0 get s0 0 get sub mul add
+            s0 ai8p_conv s1 ai8p_conv ai8p_avg ]
+        } if
+      } if
+    } for
+    stops stops length 1 sub get 0 get 1 lt { [ 1 stops stops length 1 sub get ai8p_conv ] } if
+  ] def
+  /segf [ 0 1 nodes length 2 sub {
+      /nj exch def
+      nodes nj get 0 get nodes nj 1 add get 0 get lt {
+        << /FunctionType 2 /Domain [ 0 1 ] /C0 nodes nj get 1 get /C1 nodes nj 1 add get 1 get /N 1 >>
+      } if
+    } for ] def
+  /segp [ 0 1 nodes length 2 sub {
+      /nj exch def
+      nodes nj get 0 get nodes nj 1 add get 0 get lt { nodes nj get 0 get } if
+    } for ] def
+  segf length 0 eq {
+    /gfn << /FunctionType 2 /Domain [ 0 1 ] /C0 nodes 0 get 1 get /C1 nodes 0 get 1 get /N 1 >> def
+  } {
+    segf length 1 eq { /gfn segf 0 get def } {
+      /gfn << /FunctionType 3 /Domain [ 0 1 ] /Functions segf
+              /Bounds segp 1 segp length 1 sub getinterval
+              /Encode [ segf { pop 0 1 } forall ] >> def
+    } ifelse
+  } ifelse
+} def
+/max2 { 2 copy lt { exch } if pop } def
+/min2 { 2 copy gt { exch } if pop } def
+
+% [ stops... BD : collect the stops above the mark, drop any ramp data
+% (%_Br) left below it, and store the definition.
+/BD {
+  counttomark array astore exch pop
+  ai8p_gd begin
+  /toks exch def
+  { count base le { exit } if pop } loop
+  /ti toks length def
+  gn 1 lt { /stops [ [ 0 0.5 0 [ 0 ] ] ] def } { /stops [ gn { ai8p_popstop } repeat ] def } ifelse
+  stops length 1 eq { /stops [ stops 0 get dup ] def } if
+  ai8p_buildfn
+  AI8P_grads gname << /gtype gtyp /gspace gspace /gfn gfn >> put
+  end
+} def
+
+% Instances: Bb [Bh] Bg [Bm] f BB
+/Bb { /_ingrad true def /_hl [ 0 0 0 0 ] def /_ginst null def /_gflag 1 def } def
+/Bh { 4 array astore /_hl exch def } def
+% flag (name) xOrigin yOrigin angle length a b c d tx ty Bg
+/Bg {
+  ai8p_tmp begin
+  6 array astore /gm exch def
+  /glen exch def /gang exch def /goy exch def /gox exch def /gnm exch def /gfl exch def
+  /xo AI8P_ArtW 2 div 4320 sub def
+  /yo AI8P_ArtH 2 div 4320 add def
+  % x' =  a(x-xo) - c(y-yo) + tx + xo ;  y' = -b(x-xo) + d(y-yo) + ty + yo
+  /gmat [ gm 0 get  gm 1 get neg  gm 2 get neg  gm 3 get
+          gm 4 get xo add gm 0 get xo mul sub gm 2 get yo mul add
+          gm 5 get yo add gm 1 get xo mul add gm 3 get yo mul sub ] def
+  gfl
+  << /gi_name gnm /gi_x gox /gi_y goy /gi_ang gang /gi_len glen /gi_mtx gmat /gi_hl _hl >>
+  end
+  /_ginst exch def /_gflag exch def
+} def
+
+% Fill the current clip with the gradient instance on the stack.
+/ai8p_shfill {
+  begin
+  AI8P_grads gi_name known gi_len 0 ne and {
+    AI8P_grads gi_name get begin
+    gi_mtx concat
+    0.002 setsmoothness
+    <<
+      /ShadingType gtype 1 eq { 3 } { 2 } ifelse
+      /ColorSpace gspace
+      /Function gfn
+      /Extend [ true true ]
+      /AntiAlias true
+      /Coords gtype 1 eq {
+        [ gi_x gi_hl 3 get ai8p_clamp01 gi_len mul gi_hl 2 get cos mul add
+          gi_y gi_hl 3 get ai8p_clamp01 gi_len mul gi_hl 2 get sin mul add
+          0 gi_x gi_y gi_len abs ]
+      } {
+        [ gi_x gi_y gi_x gi_ang cos gi_len mul add gi_y gi_ang sin gi_len mul add ]
+      } ifelse
+    >> shfill
+    end
+  } if
+  end
+} def
+
+% ---------------------------------------------------------------- paths
+/m { moveto } def
+/l { lineto } def
+/L { lineto } def
+/c { curveto } def
+/C { curveto } def
+/v { currentpoint 6 2 roll curveto } def
+/V { currentpoint 6 2 roll curveto } def
+/y { 2 copy curveto } def
+/Y { 2 copy curveto } def
+/h { closepath } def
+/H { } def
+/W { /_clip true def } def
+
+% Paint what is pending on the current path, apply a pending clip, and
+% start a new path.
+/ai8p_flush {
+  _pend_grad null ne { gsave _eo { eoclip } { clip } ifelse _pend_grad ai8p_shfill grestore } if
+  _pend_fill { gsave _fillc _eo { eofill } { fill } ifelse grestore } if
+  _pend_stroke { gsave _strokec stroke grestore } if
+  _clip { _eo { eoclip } { clip } ifelse } if
+  newpath
+  /_pend_grad null def /_pend_fill false def /_pend_stroke false def /_clip false def
+} def
+
+% close fill stroke ai8p_op
+/ai8p_op {
+  /_ts exch def /_tf exch def { closepath } if
+  _ingrad {
+    % Inside Bb ... BB the fill is the gradient; BB strokes and ends the path.
+    _tf _gflag 2 ne and _ginst null ne and { _ginst } { null } ifelse /_pend_grad exch def
+    /_pend_fill false def
+  } {
+    /_pend_grad null def /_pend_fill _tf def /_pend_stroke _ts def
+    _cdepth 0 eq { ai8p_flush } if
+  } ifelse
+} def
+/f { true true false ai8p_op } def
+/F { false true false ai8p_op } def
+/s { true false true ai8p_op } def
+/S { false false true ai8p_op } def
+/b { true true true ai8p_op } def
+/B { false true true ai8p_op } def
+/n { true false false ai8p_op } def
+/N { false false false ai8p_op } def
+
+% flag BB : 0 no stroke, 1 stroke, 2 close and stroke
+/BB {
+  dup 2 eq { closepath } if
+  0 gt /_pend_stroke exch def
+  /_ingrad false def
+  _cdepth 0 eq { ai8p_flush } if
+} def
+
+% ---------------------------------------------------------------- groups
+/u { } def
+/U { } def
+/*u { /_cdepth _cdepth 1 add def } def
+/*U { /_cdepth _cdepth 1 sub def _cdepth 0 le { /_cdepth 0 def ai8p_flush } if } def
+/q { gsave } def
+% Q restores the clip; the line style is paint state that stays in effect.
+/Q {
+  currentlinewidth currentlinecap currentlinejoin currentmiterlimit currentdash
+  grestore
+  setdash setmiterlimit setlinejoin setlinecap setlinewidth
+} def
+
+% ---------------------------------------------------------------- style
+/J { setlinecap } def
+/j { setlinejoin } def
+/w { setlinewidth } def
+/M { dup 1 lt { pop 1 } if setmiterlimit } def
+/d { setdash } def
+
+% Lenient mode: skip undefined operators instead of aborting.
+/ai8p_lenient {
+  errordict /undefined { pop /AI8P_Unknown AI8P_Unknown 1 add AI8P_Dict 3 1 roll put } put
+} def
+
+end

@@ -1,0 +1,38 @@
+[package]
+name = "ai8-converter"
+version = "1.0.0"
+edition = "2024"
+repository = "https://github.com/asbpette/ai8-converter"
+description = "Convert EPS / PS / PDF / AI / SVG vector files to Adobe Illustrator 8 (.ai)"
+authors = ["Asbjørn Pettersen <ap@asbjornpettersen.com>"]
+license = "MIT"
+readme = "README.md"
+keywords = ["illustrator", "vector", "eps", "svg", "converter"]
+categories = ["command-line-utilities", "graphics"]
+default-run = "ai8-converter"
+publish = false
+
+[[bin]]
+name = "ai8-converter"
+path = "src/main.rs"
+
+[[bin]]
+name = "ai8conv"
+path = "src/bin/ai8conv.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+eframe = "0.37.0"
+lopdf = "0.45.0"
+resvg = "0.48.1"
+rfd = "0.17.2"
+usvg = "0.48.1"
+
+[dev-dependencies]
+dxf = "0.6.2"
+flate2 = "1.1.10"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 4

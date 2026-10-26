@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <!-- Social preview card. GitHub's recommended size is 1280x640; the content
+       sits inside a wide margin so a 1.91:1 crop for Open Graph or Twitter
+       still has everything. Rendered to assets/social-card.png by
+       scripts/make-icons.sh, using the same palette and logo as the app. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E2A5E"/><stop offset="1" stop-color="#0B0F26"/>
+    </linearGradient>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="512" y1="240" x2="512" y2="800">
+      <stop offset="0" stop-color="#4FE3D6"/><stop offset="1" stop-color="#8E6BFF"/>
+    </linearGradient>
+    <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4FE3D6" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#8E6BFF" stop-opacity="0.15"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- The same drifting curves as the installer panel. -->
+  <g fill="none" stroke="#4FE3D6" stroke-opacity="0.13" stroke-width="2.2">
+    <path d="M-40,520 C180,470 420,560 760,492 C980,448 1140,500 1320,470"/>
+    <path d="M-40,548 C200,500 440,588 780,520 C1000,476 1150,528 1320,498"/>
+  </g>
+
+  <!-- Logo, reusing the icon master's geometry. -->
+  <g transform="translate(286,320) scale(0.40) translate(-512,-512)">
+    <g fill="none" stroke="url(#ink)" stroke-width="88">
+      <circle cx="512" cy="370" r="116"/>
+      <circle cx="512" cy="622" r="146"/>
+    </g>
+    <line x1="372" y1="254" x2="652" y2="254" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="372" cy="254" r="22" fill="#fff"/>
+    <circle cx="652" cy="254" r="22" fill="#fff"/>
+    <rect x="478" y="220" width="68" height="68" rx="6" fill="#0B0F26" stroke="#fff" stroke-width="12"/>
+    <g fill="none" stroke="#FFFFFF" stroke-opacity="0.92" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M482.3,649.0 L503.4,595.0 L524.4,649.0"/>
+      <path d="M490.7,629.6 L516.0,629.6"/>
+      <path d="M541.7,595.0 L541.7,649.0"/>
+    </g>
+  </g>
+
+  <g font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+    <text x="512" y="252" font-size="78" font-weight="700" fill="#FFFFFF" letter-spacing="-0.5">AI8 Converter</text>
+
+    <text x="514" y="312" font-size="33" fill="#C3CBDC">Vector files to Adobe Illustrator 8</text>
+
+    <rect x="514" y="346" width="210" height="3" rx="1.5" fill="url(#rule)"/>
+
+    <!-- Flowed with tspans rather than hand-placed x values, so the spacing
+         cannot drift when a word's width is misjudged. Non-breaking spaces
+         keep the separators from collapsing. -->
+    <text x="514" y="408" font-size="27" fill="#8FA0BE">EPS<tspan fill="#4A5876">&#160;·&#160;</tspan>PS<tspan
+      fill="#4A5876">&#160;·&#160;</tspan>PDF<tspan fill="#4A5876">&#160;·&#160;</tspan>AI<tspan
+      fill="#4A5876">&#160;·&#160;</tspan>SVG<tspan fill="#4A5876">&#160;·&#160;</tspan>DXF<tspan
+      fill="#4FE3D6" font-weight="600">&#160;&#160;&#8594;&#160;.ai</tspan></text>
+
+    <text x="514" y="470" font-size="25" fill="#8FA0BE">Paths, colours, spot colours, patterns and gradients kept.</text>
+    <text x="514" y="504" font-size="25" fill="#8FA0BE">Text outlined, so no fonts needed downstream.</text>
+
+    <text x="514" y="566" font-size="24" fill="#8FA0BE"><tspan
+      font-weight="600" fill="#4FE3D6">Free and open source</tspan><tspan
+      fill="#4A5876">&#160;&#160;·&#160;&#160;</tspan>MIT<tspan
+      fill="#4A5876">&#160;&#160;·&#160;&#160;</tspan>Windows and macOS</text>
+  </g>
+</svg>

@@ -1,0 +1,24 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 300 200
+%%Title: tiling pattern with rotated/scaled matrix, CTM at makepattern, and stroke use
+%%EndComments
+<< /PatternType 1 /PaintType 1 /TilingType 1
+   /BBox [0 0 8 8] /XStep 10 /YStep 12
+   /PaintProc { pop 0 0.5 0 setrgbcolor 0 0 4 8 rectfill }
+>>
+% Pattern space = CTM at makepattern time (translated by 50 50) x matrix (rotate 30, scale 2).
+gsave
+50 50 translate
+matrix 30 rotate 2 2 matrix scale matrix concatmatrix
+makepattern /Rot exch def
+grestore
+Rot setpattern
+10 10 130 180 rectfill
+% Stroke with the same pattern.
+gsave
+Rot setpattern
+12 setlinewidth
+newpath 160 30 moveto 280 170 lineto stroke
+grestore
+showpage
+%%EOF
